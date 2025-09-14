@@ -4,8 +4,13 @@
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width,initial-scale=1.0">
-    <link rel="icon" href="<%= BASE_URL %>favicon.ico">
-    <title>Prefix Management System</title>
+    <!-- Modern SVG favicon for better quality -->
+    <link rel="icon" type="image/svg+xml" href="<%= BASE_URL %>favicon.svg">
+    <!-- Fallback ICO favicon for older browsers -->
+    <link rel="icon" type="image/x-icon" href="<%= BASE_URL %>favicon.ico">
+    <!-- Apple touch icon -->
+    <link rel="apple-touch-icon" href="<%= BASE_URL %>favicon.svg">
+    <title>IPAM4Cloud - IP Address Management</title>
   </head>
   <body>
     <noscript>
