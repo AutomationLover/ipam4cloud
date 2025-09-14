@@ -1,0 +1,6 @@
+psycopg2-binary==2.9.7
+sqlalchemy==2.0.21
+ipaddress==1.0.23
+uuid==1.30
+python-dotenv==1.0.0
+

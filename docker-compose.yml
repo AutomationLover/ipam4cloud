@@ -1,0 +1,63 @@
+services:
+  postgres:
+    image: postgres:15
+    container_name: prefix_db
+    environment:
+      POSTGRES_DB: prefix_management
+      POSTGRES_USER: prefix_user
+      POSTGRES_PASSWORD: prefix_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U prefix_user -d prefix_management"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  app:
+    build: .
+    container_name: prefix_app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://prefix_user:prefix_pass@postgres:5432/prefix_management
+    volumes:
+      - ./app:/app
+    working_dir: /app
+    command: python main.py
+
+  backend:
+    build: ./backend
+    container_name: prefix_backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://prefix_user:prefix_pass@postgres:5432/prefix_management
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./app:/app
+      - ./backend:/backend
+    working_dir: /backend
+
+  frontend:
+    build: ./frontend
+    container_name: prefix_frontend
+    depends_on:
+      - backend
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - VUE_APP_API_URL=http://localhost:8000
+
+volumes:
+  postgres_data:
