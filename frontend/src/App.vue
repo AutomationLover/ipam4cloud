@@ -26,17 +26,6 @@
             <el-icon><Monitor /></el-icon>
             <span>VPCs</span>
           </el-menu-item>
-          <div class="header-right">
-            <el-button 
-              type="info" 
-              size="small" 
-              @click="goToReadOnlyPortal"
-              plain
-            >
-              <el-icon><View /></el-icon>
-              Read-Only Portal
-            </el-button>
-          </div>
         </el-menu>
       </el-header>
       <el-main>
@@ -47,8 +36,7 @@
 </template>
 
 <script>
-import { Grid, List, Connection, Monitor, View } from '@element-plus/icons-vue'
-import { ElMessageBox } from 'element-plus'
+import { Grid, List, Connection, Monitor } from '@element-plus/icons-vue'
 
 export default {
   name: 'App',
@@ -56,28 +44,10 @@ export default {
     Grid,
     List,
     Connection,
-    Monitor,
-    View
+    Monitor
   },
   methods: {
-    async goToReadOnlyPortal() {
-      try {
-        await ElMessageBox.confirm(
-          'You will be redirected to the Read-Only Portal (port 8081) where you can only view and query resources. Continue?',
-          'Go to Read-Only Portal',
-          {
-            confirmButtonText: 'Go to Read-Only Portal',
-            cancelButtonText: 'Stay in Admin Portal',
-            type: 'info'
-          }
-        )
-        
-        // Redirect to readonly portal on port 8081
-        window.location.href = 'http://localhost:8081'
-      } catch (error) {
-        // User cancelled, stay in admin portal
-      }
-    }
+    // Reserved for future methods
   }
 }
 </script>
@@ -97,13 +67,6 @@ export default {
 
 .el-main {
   padding: 20px;
-}
-
-.header-right {
-  position: absolute;
-  right: 20px;
-  top: 50%;
-  transform: translateY(-50%);
 }
 </style>
 

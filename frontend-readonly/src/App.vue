@@ -26,21 +26,6 @@
             <el-icon><Monitor /></el-icon>
             <span>VPCs</span>
           </el-menu-item>
-          <div class="header-right">
-            <el-tag type="info" size="large">
-              <el-icon><View /></el-icon>
-              Read-Only Mode
-            </el-tag>
-            <el-button 
-              type="primary" 
-              size="small" 
-              @click="switchToManagement"
-              style="margin-left: 12px;"
-            >
-              <el-icon><Setting /></el-icon>
-              Admin Portal
-            </el-button>
-          </div>
         </el-menu>
       </el-header>
       <el-main>
@@ -56,8 +41,7 @@
 </template>
 
 <script>
-import { Grid, List, Connection, Monitor, View, Setting, InfoFilled } from '@element-plus/icons-vue'
-import { ElMessageBox } from 'element-plus'
+import { Grid, List, Connection, Monitor } from '@element-plus/icons-vue'
 
 export default {
   name: 'ReadOnlyApp',
@@ -65,30 +49,10 @@ export default {
     Grid,
     List,
     Connection,
-    Monitor,
-    View,
-    Setting,
-    InfoFilled
+    Monitor
   },
   methods: {
-    async switchToManagement() {
-      try {
-        await ElMessageBox.confirm(
-          'You will be redirected to the Admin Portal (port 8080) where you can create, edit, and delete resources. Continue?',
-          'Switch to Admin Portal',
-          {
-            confirmButtonText: 'Go to Admin Portal',
-            cancelButtonText: 'Stay in Read-Only',
-            type: 'warning'
-          }
-        )
-        
-        // Redirect to admin portal on port 8080
-        window.location.href = 'http://localhost:8080'
-      } catch (error) {
-        // User cancelled, stay in read-only mode
-      }
-    }
+    // Reserved for future methods
   }
 }
 </script>
@@ -110,14 +74,6 @@ export default {
   border-bottom: none;
 }
 
-.header-right {
-  position: absolute;
-  right: 20px;
-  top: 50%;
-  transform: translateY(-50%);
-  display: flex;
-  align-items: center;
-}
 
 .el-main {
   padding: 20px;

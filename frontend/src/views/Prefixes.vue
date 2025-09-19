@@ -155,7 +155,16 @@
           style="width: 100%"
           @sort-change="handleSortChange"
         >
-          <el-table-column prop="cidr" label="CIDR" sortable width="150" />
+          <el-table-column label="CIDR" sortable width="150">
+            <template #default="scope">
+              <router-link 
+                :to="`/prefixes/${scope.row.prefix_id}`"
+                class="cidr-link"
+              >
+                <el-text type="primary">{{ scope.row.cidr }}</el-text>
+              </router-link>
+            </template>
+          </el-table-column>
           <el-table-column label="VRF" width="280">
             <template #default="scope">
               <div class="vrf-info">
@@ -251,7 +260,12 @@
                 <el-tag :type="data.source === 'manual' ? 'primary' : 'success'" size="small">
                   {{ data.source }}
                 </el-tag>
-                <span class="node-cidr">{{ data.cidr }}</span>
+                <router-link 
+                  :to="`/prefixes/${data.prefix_id}`"
+                  class="cidr-link"
+                >
+                  <span class="node-cidr">{{ data.cidr }}</span>
+                </router-link>
                 <el-icon v-if="data.routable" color="green" class="node-icon"><Check /></el-icon>
                 <el-icon v-else color="red" class="node-icon"><Close /></el-icon>
                 <div class="node-vrf">
@@ -1398,5 +1412,15 @@ export default {
 
 .vrf-option .vrf-details {
   font-size: 11px;
+}
+
+/* Clickable CIDR styles */
+.cidr-link {
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.cidr-link:hover .node-cidr {
+  text-decoration: underline;
 }
 </style>
