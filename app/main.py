@@ -9,6 +9,7 @@ import time
 import uuid
 from sqlalchemy import text
 from models import DatabaseManager, PrefixManager, VRF, VPC, Prefix
+from json_loader import JSONDataLoader
 
 def wait_for_db(db_manager: DatabaseManager, max_retries: int = 30):
     """Wait for database to be ready"""
@@ -96,152 +97,150 @@ def safe_create_standalone_public_ip(prefix_manager: PrefixManager, cidr: str, t
         else:
             raise e
 
-def demo_user_story_manual_planning(prefix_manager: PrefixManager):
+def load_manual_prefixes_from_json(prefix_manager: PrefixManager, data_loader: JSONDataLoader):
     """
-    User Story: Engineer does prefix planning
-    - Create 10.0.0.0/8 as root prefix for prod-vrf
-    - Create 10.0.0.0/12 as prod environment reservation
-    - Create VPCs and associate with prefixes
+    Load manual prefix planning from JSON configuration
     """
     print("\n" + "="*60)
-    print("DEMO: Manual Prefix Planning")
+    print("LOADING: Manual Prefix Configuration from JSON")
     print("="*60)
     
-    # Step 1: Create root prefix 10.0.0.0/8 (or get existing)
-    print("\n1. Creating root prefix 10.0.0.0/8 for prod-vrf...")
-    root_prefix = safe_create_prefix(
-        prefix_manager,
-        vrf_id='prod-vrf',
-        cidr='10.0.0.0/8',
-        tags={'env': 'prod', 'managed_by': 'engineer'},
-        routable=True
-    )
-    print(f"   ✓ Ready: {root_prefix.prefix_id}")
-    
-    # Step 2: Create 10.0.0.0/12 for prod environment (or get existing)
-    print("\n2. Creating 10.0.0.0/12 reservation for prod environment...")
-    prod_prefix = safe_create_prefix(
-        prefix_manager,
-        vrf_id='prod-vrf',
-        cidr='10.0.0.0/12',
-        parent_prefix_id=root_prefix.prefix_id,
-        tags={'env': 'prod', 'purpose': 'prod_reservation'},
-        routable=True
-    )
-    print(f"   ✓ Ready: {prod_prefix.prefix_id}")
-    
-    # Step 3: Create AWS VPC (or get existing)
-    print("\n3. Creating AWS VPC for prod environment...")
-    vpc1 = safe_create_vpc(
-        prefix_manager,
-        description='Production Application VPC',
-        provider='aws',
-        provider_account_id='123456789012',
-        provider_vpc_id='vpc-0abc1234',
-        region='us-east-1',
-        tags={'owner': 'netops', 'env': 'prod'}
-    )
-    print(f"   ✓ Ready VPC: {vpc1.vpc_id}")
-    
-    # Step 4: Reserve 10.0.0.0/16 for this VPC (routable)
-    print("\n4. Reserving 10.0.0.0/16 for VPC (routable)...")
-    vpc_prefix_routable = safe_create_prefix(
-        prefix_manager,
-        vrf_id='prod-vrf',
-        cidr='10.0.0.0/16',
-        parent_prefix_id=prod_prefix.prefix_id,
-        tags={'vpc_id': str(vpc1.vpc_id), 'purpose': 'vpc_reservation'},
-        routable=True,
-        vpc_children_type_flag=True
-    )
-    print(f"   ✓ Ready: {vpc_prefix_routable.prefix_id}")
-    
-    # Step 5: Associate VPC with the routable prefix
-    print("\n5. Associating VPC with routable prefix...")
-    association1 = safe_associate_vpc(
-        prefix_manager,
-        vpc_id=vpc1.vpc_id,
-        vpc_prefix_cidr='10.0.0.0/16',
-        routable=True,
-        parent_prefix_id=vpc_prefix_routable.prefix_id
-    )
-    print(f"   ✓ Ready association: {association1.association_id}")
-    
-    # Step 6: Create another VPC for non-routable prefix
-    print("\n6. Creating second VPC for non-routable prefix...")
-    vpc2 = safe_create_vpc(
-        prefix_manager,
-        description='Development/Test VPC',
-        provider='aws',
-        provider_account_id='123456789012',
-        provider_vpc_id='vpc-0def5678',
-        region='us-east-1',
-        tags={'owner': 'devops', 'env': 'dev'}
-    )
-    print(f"   ✓ Ready VPC: {vpc2.vpc_id}")
-    
-    # Step 7: Reserve 10.1.0.0/16 for non-routable VPC
-    print("\n7. Reserving 10.1.0.0/16 for VPC (non-routable)...")
-    vpc_prefix_nonroutable = safe_create_prefix(
-        prefix_manager,
-        vrf_id='prod-vrf',
-        cidr='10.1.0.0/16',
-        parent_prefix_id=prod_prefix.prefix_id,
-        tags={'vpc_id': str(vpc2.vpc_id), 'purpose': 'vpc_reservation'},
-        routable=False,
-        vpc_children_type_flag=True
-    )
-    print(f"   ✓ Ready: {vpc_prefix_nonroutable.prefix_id}")
-    
-    # Step 8: Associate VPC with the non-routable prefix
-    print("\n8. Associating VPC with non-routable prefix...")
-    association2 = safe_associate_vpc(
-        prefix_manager,
-        vpc_id=vpc2.vpc_id,
-        vpc_prefix_cidr='10.1.0.0/16',
-        routable=False,
-        parent_prefix_id=vpc_prefix_nonroutable.prefix_id
-    )
-    print(f"   ✓ Ready association: {association2.association_id}")
-    
-    return vpc1, vpc2
+    try:
+        manual_prefixes = data_loader.load_manual_prefixes()
+        created_prefixes = {}
+        
+        print(f"\nLoading {len(manual_prefixes)} manual prefixes...")
+        
+        for prefix_data in manual_prefixes:
+            data_loader.validate_manual_prefix(prefix_data)
+            
+            print(f"\nCreating prefix: {prefix_data['cidr']} in VRF {prefix_data['vrf_id']}")
+            
+            # Resolve parent_prefix_id if it's a reference to another prefix
+            parent_prefix_id = prefix_data.get('parent_prefix_id')
+            if parent_prefix_id and parent_prefix_id.startswith('manual-'):
+                # It's already a prefix ID
+                pass
+            elif parent_prefix_id in created_prefixes:
+                # It's a reference to a previously created prefix
+                parent_prefix_id = created_prefixes[parent_prefix_id].prefix_id
+            
+            prefix = safe_create_prefix(
+                prefix_manager,
+                vrf_id=prefix_data['vrf_id'],
+                cidr=prefix_data['cidr'],
+                parent_prefix_id=parent_prefix_id,
+                tags=prefix_data.get('tags', {}),
+                routable=prefix_data.get('routable', True),
+                vpc_children_type_flag=prefix_data.get('vpc_children_type_flag', False)
+            )
+            
+            # Store prefix for reference by other prefixes
+            created_prefixes[prefix_data['cidr']] = prefix
+            print(f"   ✓ Created: {prefix.prefix_id}")
+        
+        print(f"\n✅ Successfully loaded {len(created_prefixes)} manual prefixes")
+        return created_prefixes
+        
+    except Exception as e:
+        print(f"❌ Error loading manual prefixes: {e}")
+        raise
 
-def demo_user_story_auto_ingestion(prefix_manager: PrefixManager, vpc1: VPC, vpc2: VPC):
+def load_vpc_data_from_json(prefix_manager: PrefixManager, data_loader: JSONDataLoader):
     """
-    User Story: Auto script ingestion
-    - Simulate hourly cron job fetching VPC subnets
-    - Insert subnet prefixes with proper inheritance
+    Load VPC configuration from JSON
     """
     print("\n" + "="*60)
-    print("DEMO: Auto Script Ingestion (Simulated)")
+    print("LOADING: VPC Configuration from JSON")
     print("="*60)
     
-    print("\n1. Simulating auto discovery of subnets in routable VPC...")
+    try:
+        vpc_data = data_loader.load_vpc_data()
+        created_vpcs = {}
+        vpc_lookup = {}  # Map provider_vpc_id to VPC object
+        
+        # Step 1: Create VPCs
+        print(f"\n1. Creating {len(vpc_data['vpcs'])} VPCs...")
+        for vpc_config in vpc_data['vpcs']:
+            data_loader.validate_vpc_data(vpc_config)
+            
+            print(f"   Creating VPC: {vpc_config['provider_vpc_id']} ({vpc_config['description']})")
+            
+            vpc = safe_create_vpc(
+                prefix_manager,
+                description=vpc_config['description'],
+                provider=vpc_config['provider'],
+                provider_account_id=vpc_config['provider_account_id'],
+                provider_vpc_id=vpc_config['provider_vpc_id'],
+                region=vpc_config['region'],
+                tags=vpc_config.get('tags', {})
+            )
+            
+            created_vpcs[vpc_config['provider_vpc_id']] = vpc
+            vpc_lookup[vpc_config['provider_vpc_id']] = vpc
+            print(f"      ✓ Created VPC: {vpc.vpc_id}")
+        
+        # Step 2: Create VPC associations
+        print(f"\n2. Creating {len(vpc_data['vpc_associations'])} VPC associations...")
+        for assoc_config in vpc_data['vpc_associations']:
+            data_loader.validate_vpc_association(assoc_config)
+            
+            vpc_id = vpc_lookup[assoc_config['vpc_provider_vpc_id']].vpc_id
+            
+            print(f"   Associating VPC {assoc_config['vpc_provider_vpc_id']} with prefix {assoc_config['vpc_prefix_cidr']}")
+            
+            association = safe_associate_vpc(
+                prefix_manager,
+                vpc_id=vpc_id,
+                vpc_prefix_cidr=assoc_config['vpc_prefix_cidr'],
+                routable=assoc_config['routable'],
+                parent_prefix_id=assoc_config['parent_prefix_id']
+            )
+            print(f"      ✓ Created association: {association.association_id}")
+        
+        print(f"\n✅ Successfully loaded VPC configuration")
+        return created_vpcs
+        
+    except Exception as e:
+        print(f"❌ Error loading VPC data: {e}")
+        raise
+
+def load_vpc_subnets_from_json(prefix_manager: PrefixManager, data_loader: JSONDataLoader, vpcs_lookup: dict):
+    """
+    Load VPC subnets from JSON configuration
+    """
+    print("\n" + "="*60)
+    print("LOADING: VPC Subnets from JSON")
+    print("="*60)
     
-    # Routable VPC subnets - should inherit prod-vrf and be routable
-    routable_subnets = [
-        ('10.0.1.0/24', {'Name': 'prod-app-subnet-1a', 'AZ': 'us-east-1a'}),
-        ('10.0.2.0/24', {'Name': 'prod-app-subnet-1b', 'AZ': 'us-east-1b'}),
-        ('10.0.10.0/24', {'Name': 'prod-db-subnet-1a', 'AZ': 'us-east-1a'}),
-    ]
-    
-    for subnet_cidr, tags in routable_subnets:
-        print(f"   Ingesting subnet: {subnet_cidr}")
-        prefix_id = prefix_manager.upsert_vpc_subnet(vpc1.vpc_id, subnet_cidr, tags)
-        print(f"   ✓ Created: {prefix_id}")
-    
-    print("\n2. Simulating auto discovery of subnets in non-routable VPC...")
-    
-    # Non-routable VPC subnets - should get their own VRF and be non-routable
-    nonroutable_subnets = [
-        ('10.1.1.0/24', {'Name': 'dev-app-subnet-1a', 'AZ': 'us-east-1a'}),
-        ('10.1.2.0/24', {'Name': 'dev-test-subnet-1b', 'AZ': 'us-east-1b'}),
-    ]
-    
-    for subnet_cidr, tags in nonroutable_subnets:
-        print(f"   Ingesting subnet: {subnet_cidr}")
-        prefix_id = prefix_manager.upsert_vpc_subnet(vpc2.vpc_id, subnet_cidr, tags)
-        print(f"   ✓ Created: {prefix_id}")
+    try:
+        vpc_data = data_loader.load_vpc_data()
+        
+        print(f"\nLoading {len(vpc_data['vpc_subnets'])} VPC subnets...")
+        
+        for subnet_config in vpc_data['vpc_subnets']:
+            data_loader.validate_vpc_subnet(subnet_config)
+            
+            vpc_provider_id = subnet_config['vpc_provider_vpc_id']
+            if vpc_provider_id not in vpcs_lookup:
+                print(f"   ⚠️  Skipping subnet {subnet_config['subnet_cidr']} - VPC {vpc_provider_id} not found")
+                continue
+            
+            vpc = vpcs_lookup[vpc_provider_id]
+            
+            print(f"   Ingesting subnet: {subnet_config['subnet_cidr']} in VPC {vpc_provider_id}")
+            prefix_id = prefix_manager.upsert_vpc_subnet(
+                vpc.vpc_id,
+                subnet_config['subnet_cidr'],
+                subnet_config.get('tags', {})
+            )
+            print(f"      ✓ Created: {prefix_id}")
+        
+        print(f"\n✅ Successfully loaded VPC subnets")
+        
+    except Exception as e:
+        print(f"❌ Error loading VPC subnets: {e}")
+        raise
 
 def demo_user_story_client_queries(prefix_manager: PrefixManager, vpc1: VPC, vpc2: VPC):
     """
@@ -295,123 +294,64 @@ def demo_user_story_client_queries(prefix_manager: PrefixManager, vpc1: VPC, vpc
     for prefix in aws_prefixes:
         print(f"   - {prefix.cidr} (Source: {prefix.source})")
 
-def demo_public_ip_addresses(prefix_manager: PrefixManager, vpc1: VPC, vpc2: VPC):
+def load_public_ips_from_json(prefix_manager: PrefixManager, data_loader: JSONDataLoader, vpcs_lookup: dict):
     """
-    Demo: Create public IP addresses for VPCs
-    - Create public IP addresses as /32 prefixes in public-vrf
-    - Associate them with VPCs using the vpc-subnet-prefix format
+    Load public IP addresses from JSON configuration
     """
     print("\n" + "="*60)
-    print("DEMO: Public IP Address Management")
+    print("LOADING: Public IP Addresses from JSON")
     print("="*60)
     
-    # Public IP addresses for VPC1 (Production VPC)
-    print("\n1. Creating public IP addresses for Production VPC...")
-    vpc1_public_ips = [
-        {
-            'ip': '52.23.45.67/32',
-            'tags': {
-                'Name': 'prod-app-lb-ip',
-                'service': 'load-balancer',
-                'env': 'prod',
-                'vpc_id': str(vpc1.vpc_id)
-            }
-        },
-        {
-            'ip': '54.123.78.90/32', 
-            'tags': {
-                'Name': 'prod-nat-gateway-ip',
-                'service': 'nat-gateway',
-                'env': 'prod',
-                'vpc_id': str(vpc1.vpc_id)
-            }
-        },
-        {
-            'ip': '3.45.67.89/32',
-            'tags': {
-                'Name': 'prod-api-gateway-ip',
-                'service': 'api-gateway', 
-                'env': 'prod',
-                'vpc_id': str(vpc1.vpc_id)
-            }
-        }
-    ]
-    
-    for ip_data in vpc1_public_ips:
-        print(f"   Creating public IP: {ip_data['ip']}")
+    try:
+        # Load VPC-associated public IPs
+        vpc_data = data_loader.load_vpc_data()
         
-        public_ip_prefix = safe_create_public_ip(
-            prefix_manager,
-            vpc_id=vpc1.vpc_id,
-            cidr=ip_data['ip'],
-            tags=ip_data['tags']
-        )
-        print(f"   ✓ Created: {public_ip_prefix.prefix_id}")
-    
-    # Public IP addresses for VPC2 (Development VPC)  
-    print("\n2. Creating public IP addresses for Development VPC...")
-    vpc2_public_ips = [
-        {
-            'ip': '18.45.123.45/32',
-            'tags': {
-                'Name': 'dev-test-lb-ip',
-                'service': 'load-balancer',
-                'env': 'dev',
-                'vpc_id': str(vpc2.vpc_id)
-            }
-        },
-        {
-            'ip': '34.67.89.12/32',
-            'tags': {
-                'Name': 'dev-nat-gateway-ip', 
-                'service': 'nat-gateway',
-                'env': 'dev',
-                'vpc_id': str(vpc2.vpc_id)
-            }
-        }
-    ]
-    
-    for ip_data in vpc2_public_ips:
-        print(f"   Creating public IP: {ip_data['ip']}")
+        print(f"\n1. Loading {len(vpc_data['public_ips'])} VPC-associated public IPs...")
         
-        public_ip_prefix = safe_create_public_ip(
-            prefix_manager,
-            vpc_id=vpc2.vpc_id,
-            cidr=ip_data['ip'],
-            tags=ip_data['tags']
-        )
-        print(f"   ✓ Created: {public_ip_prefix.prefix_id}")
-    
-    # Additional standalone public IPs (not tied to specific VPCs)
-    print("\n3. Creating standalone public IP addresses...")
-    standalone_public_ips = [
-        {
-            'ip': '203.0.113.10/32',
-            'tags': {
-                'Name': 'company-website-ip',
-                'service': 'website',
-                'owner': 'marketing'
-            }
-        },
-        {
-            'ip': '198.51.100.25/32',
-            'tags': {
-                'Name': 'backup-service-ip',
-                'service': 'backup',
-                'owner': 'ops'
-            }
-        }
-    ]
-    
-    for ip_data in standalone_public_ips:
-        print(f"   Creating standalone public IP: {ip_data['ip']}")
+        for ip_config in vpc_data['public_ips']:
+            data_loader.validate_public_ip(ip_config)
+            
+            vpc_provider_id = ip_config['vpc_provider_vpc_id']
+            if vpc_provider_id not in vpcs_lookup:
+                print(f"   ⚠️  Skipping public IP {ip_config['cidr']} - VPC {vpc_provider_id} not found")
+                continue
+            
+            vpc = vpcs_lookup[vpc_provider_id]
+            tags = ip_config.get('tags', {})
+            tags['vpc_id'] = str(vpc.vpc_id)  # Add VPC ID to tags
+            
+            print(f"   Creating public IP: {ip_config['cidr']} for VPC {vpc_provider_id}")
+            
+            public_ip_prefix = safe_create_public_ip(
+                prefix_manager,
+                vpc_id=vpc.vpc_id,
+                cidr=ip_config['cidr'],
+                tags=tags
+            )
+            print(f"      ✓ Created: {public_ip_prefix.prefix_id}")
         
-        public_ip_prefix = safe_create_standalone_public_ip(
-            prefix_manager,
-            cidr=ip_data['ip'],
-            tags=ip_data['tags']
-        )
-        print(f"   ✓ Created: {public_ip_prefix.prefix_id}")
+        # Load standalone public IPs
+        standalone_ips = data_loader.load_public_ip_data()
+        if standalone_ips:
+            print(f"\n2. Loading {len(standalone_ips)} standalone public IPs...")
+            
+            for ip_config in standalone_ips:
+                data_loader.validate_public_ip(ip_config)
+                
+                print(f"   Creating standalone public IP: {ip_config['cidr']}")
+                
+                public_ip_prefix = safe_create_standalone_public_ip(
+                    prefix_manager,
+                    cidr=ip_config['cidr'],
+                    tags=ip_config.get('tags', {})
+                )
+                print(f"      ✓ Created: {public_ip_prefix.prefix_id}")
+        
+        print(f"\n✅ Successfully loaded public IP addresses")
+        
+    except Exception as e:
+        print(f"❌ Error loading public IPs: {e}")
+        raise
 
 def demo_space_analysis(prefix_manager: PrefixManager):
     """
@@ -442,8 +382,8 @@ def demo_space_analysis(prefix_manager: PrefixManager):
         print(f"     - {prefix.cidr} ({name}) - Service: {service}")
 
 def main():
-    """Main demo function implementing all user stories"""
-    print("🚀 Starting Prefix Management System Demo")
+    """Main demo function implementing all user stories with JSON configuration"""
+    print("🚀 Starting Prefix Management System with JSON Configuration")
     print("=" * 60)
     
     # Initialize database connection
@@ -455,27 +395,49 @@ def main():
     # Wait for database to be ready
     wait_for_db(db_manager)
     
-    # Initialize prefix manager
+    # Initialize prefix manager and JSON data loader
     prefix_manager = PrefixManager(db_manager)
+    data_loader = JSONDataLoader(data_dir='data')
     
     try:
-        # Run user story demos
-        vpc1, vpc2 = demo_user_story_manual_planning(prefix_manager)
-        demo_user_story_auto_ingestion(prefix_manager, vpc1, vpc2)
-        demo_public_ip_addresses(prefix_manager, vpc1, vpc2)
-        demo_user_story_client_queries(prefix_manager, vpc1, vpc2)
-        demo_space_analysis(prefix_manager)
+        # Load configuration from JSON files
+        print("\n📄 Loading configuration from JSON files...")
+        
+        # Step 1: Load manual prefixes
+        created_prefixes = load_manual_prefixes_from_json(prefix_manager, data_loader)
+        
+        # Step 2: Load VPCs and associations
+        created_vpcs = load_vpc_data_from_json(prefix_manager, data_loader)
+        
+        # Step 3: Load VPC subnets
+        load_vpc_subnets_from_json(prefix_manager, data_loader, created_vpcs)
+        
+        # Step 4: Load public IP addresses
+        load_public_ips_from_json(prefix_manager, data_loader, created_vpcs)
+        
+        # Step 5: Run demonstration queries (using VPCs by provider ID for compatibility)
+        vpc1 = created_vpcs.get('vpc-0abc1234')
+        vpc2 = created_vpcs.get('vpc-0def5678')
+        
+        if vpc1 and vpc2:
+            demo_user_story_client_queries(prefix_manager, vpc1, vpc2)
+            demo_space_analysis(prefix_manager)
+        else:
+            print("⚠️  Skipping client queries demo - VPCs not found")
         
         print("\n" + "="*60)
-        print("✅ Demo completed successfully!")
+        print("✅ JSON Configuration Loading completed successfully!")
         print("="*60)
         
         # Final tree view
         print("\n🌳 Final Prefix Tree:")
         prefix_manager.print_tree_view('prod-vrf')
         
+        print("\n🌐 Public IP Addresses:")
+        prefix_manager.print_tree_view('public-vrf')
+        
     except Exception as e:
-        print(f"\n❌ Demo failed with error: {e}")
+        print(f"\n❌ Configuration loading failed with error: {e}")
         import traceback
         traceback.print_exc()
         return 1
