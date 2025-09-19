@@ -88,6 +88,9 @@ export const vpcAPI = {
   // Get all VPCs
   getVPCs: () => api.get('/api/vpcs'),
   
+  // Get specific VPC by ID
+  getVPC: (vpcId) => api.get(`/api/vpcs/${vpcId}`),
+  
   // Create new VPC
   createVPC: (data) => api.post('/api/vpcs', data),
   

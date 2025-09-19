@@ -3,7 +3,9 @@ import Home from '../views/Home.vue'
 import Prefixes from '../views/Prefixes.vue'
 import PrefixDetail from '../views/PrefixDetail.vue'
 import VRFs from '../views/VRFs.vue'
+import VRFDetail from '../views/VRFDetail.vue'
 import VPCs from '../views/VPCs.vue'
+import VPCDetail from '../views/VPCDetail.vue'
 
 const routes = [
   // Management interface routes
@@ -28,9 +30,19 @@ const routes = [
     component: VRFs
   },
   {
+    path: '/vrfs/:vrfId',
+    name: 'VRFDetail',
+    component: VRFDetail
+  },
+  {
     path: '/vpcs',
     name: 'VPCs',
     component: VPCs
+  },
+  {
+    path: '/vpcs/:vpcId',
+    name: 'VPCDetail',
+    component: VPCDetail
   }
 ]
 

@@ -16,7 +16,16 @@
         v-loading="loading"
         style="width: 100%"
       >
-        <el-table-column prop="provider_vpc_id" label="Provider VPC ID" width="150" />
+        <el-table-column label="Provider VPC ID" width="150">
+          <template #default="scope">
+            <router-link 
+              :to="`/vpcs/${scope.row.vpc_id}`"
+              class="vpc-link"
+            >
+              <el-text type="primary">{{ scope.row.provider_vpc_id }}</el-text>
+            </router-link>
+          </template>
+        </el-table-column>
         <el-table-column label="Internal UUID" width="200">
           <template #default="scope">
             <div class="uuid-display">
@@ -442,6 +451,16 @@ export default {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Clickable VPC ID styles */
+.vpc-link {
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.vpc-link:hover {
+  text-decoration: underline;
 }
 </style>
 

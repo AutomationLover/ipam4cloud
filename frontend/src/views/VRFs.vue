@@ -22,7 +22,12 @@
         <el-table-column label="VRF ID" width="250">
           <template #default="scope">
             <div class="vrf-id-cell">
-              <span>{{ scope.row.vrf_id }}</span>
+              <router-link 
+                :to="`/vrfs/${encodeURIComponent(scope.row.vrf_id)}`"
+                class="vrf-link"
+              >
+                <el-text type="primary">{{ scope.row.vrf_id }}</el-text>
+              </router-link>
               <el-tag 
                 v-if="isAutoCreatedVRF(scope.row.vrf_id)" 
                 size="small" 
@@ -480,5 +485,15 @@ export default {
 
 .auto-created-tag {
   font-size: 10px;
+}
+
+/* Clickable VRF ID styles */
+.vrf-link {
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.vrf-link:hover {
+  text-decoration: underline;
 }
 </style>

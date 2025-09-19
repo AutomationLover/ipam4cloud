@@ -690,6 +690,32 @@ async def get_vpcs(pm: PrefixManager = Depends(get_prefix_manager)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/vpcs/{vpc_id}", response_model=VPCResponse)
+async def get_vpc(vpc_id: str, pm: PrefixManager = Depends(get_prefix_manager)):
+    """Get specific VPC by ID"""
+    try:
+        session = pm.db_manager.get_session()
+        try:
+            vpc = session.query(VPC).filter(VPC.vpc_id == vpc_id).first()
+            if not vpc:
+                raise HTTPException(status_code=404, detail="VPC not found")
+            
+            return VPCResponse(
+                vpc_id=str(vpc.vpc_id),
+                description=vpc.description,
+                provider=vpc.provider,
+                provider_account_id=vpc.provider_account_id,
+                provider_vpc_id=vpc.provider_vpc_id,
+                region=vpc.region,
+                tags=vpc.tags
+            )
+        finally:
+            session.close()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/api/vpcs", response_model=VPCResponse)
 async def create_vpc(
     vpc_data: VPCCreate,
