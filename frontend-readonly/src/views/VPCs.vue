@@ -76,7 +76,7 @@
 
 <script>
 import { View, CopyDocument } from '@element-plus/icons-vue'
-import { vpcAPI, prefixAPI } from '../../api'
+import { vpcAPI, prefixAPI } from '../api'
 import { ElMessage } from 'element-plus'
 
 export default {

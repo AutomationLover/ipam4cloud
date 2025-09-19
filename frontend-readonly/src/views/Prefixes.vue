@@ -232,7 +232,7 @@
 
 <script>
 import { Search, List, Share, Check, Close, QuestionFilled, View } from '@element-plus/icons-vue'
-import { prefixAPI, vrfAPI } from '../../api'
+import { prefixAPI, vrfAPI } from '../api'
 import { ElMessage } from 'element-plus'
 
 export default {

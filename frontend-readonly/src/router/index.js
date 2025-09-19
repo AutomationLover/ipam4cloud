@@ -5,25 +5,24 @@ import VRFs from '../views/VRFs.vue'
 import VPCs from '../views/VPCs.vue'
 
 const routes = [
-  // Management interface routes
   {
     path: '/',
-    name: 'Home',
+    name: 'ReadOnlyHome',
     component: Home
   },
   {
     path: '/prefixes',
-    name: 'Prefixes',
+    name: 'ReadOnlyPrefixes',
     component: Prefixes
   },
   {
     path: '/vrfs',
-    name: 'VRFs',
+    name: 'ReadOnlyVRFs',
     component: VRFs
   },
   {
     path: '/vpcs',
-    name: 'VPCs',
+    name: 'ReadOnlyVPCs',
     component: VPCs
   }
 ]
@@ -34,4 +33,3 @@ const router = createRouter({
 })
 
 export default router
-

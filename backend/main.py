@@ -115,10 +115,14 @@ TreeNode.model_rebuild()
 # Initialize FastAPI app
 app = FastAPI(title="Prefix Management API", version="1.0.0")
 
-# CORS middleware for Vue.js frontend
+# CORS middleware for Vue.js frontends (admin + readonly portals)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8080", "http://localhost:3000"],
+    allow_origins=[
+        "http://localhost:8080",  # Admin Portal
+        "http://localhost:8081",  # Read-Only Portal
+        "http://localhost:3000"   # Development fallback
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

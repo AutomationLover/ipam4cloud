@@ -69,7 +69,7 @@
 
 <script>
 import { Check, Close, Star, View } from '@element-plus/icons-vue'
-import { vrfAPI, prefixAPI } from '../../api'
+import { vrfAPI, prefixAPI } from '../api'
 import { ElMessage } from 'element-plus'
 
 export default {

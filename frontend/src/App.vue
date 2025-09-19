@@ -30,11 +30,11 @@
             <el-button 
               type="info" 
               size="small" 
-              @click="switchToReadOnly"
+              @click="goToReadOnlyPortal"
               plain
             >
               <el-icon><View /></el-icon>
-              Read-Only Interface
+              Read-Only Portal
             </el-button>
           </div>
         </el-menu>
@@ -60,22 +60,22 @@ export default {
     View
   },
   methods: {
-    async switchToReadOnly() {
+    async goToReadOnlyPortal() {
       try {
         await ElMessageBox.confirm(
-          'You are about to switch to the read-only interface where you can only view and query resources. Continue?',
-          'Switch to Read-Only Interface',
+          'You will be redirected to the Read-Only Portal (port 8081) where you can only view and query resources. Continue?',
+          'Go to Read-Only Portal',
           {
-            confirmButtonText: 'Switch to Read-Only',
-            cancelButtonText: 'Stay in Management',
+            confirmButtonText: 'Go to Read-Only Portal',
+            cancelButtonText: 'Stay in Admin Portal',
             type: 'info'
           }
         )
         
-        // Switch to read-only interface
-        this.$router.push('/readonly')
+        // Redirect to readonly portal on port 8081
+        window.location.href = 'http://localhost:8081'
       } catch (error) {
-        // User cancelled, stay in management mode
+        // User cancelled, stay in admin portal
       }
     }
   }

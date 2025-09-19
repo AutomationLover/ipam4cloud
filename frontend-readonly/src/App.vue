@@ -10,19 +10,19 @@
           text-color="#ecf0f1"
           active-text-color="#3498db"
         >
-          <el-menu-item index="/readonly">
+          <el-menu-item index="/">
             <el-icon><Grid /></el-icon>
             <span>Prefix Query System</span>
           </el-menu-item>
-          <el-menu-item index="/readonly/prefixes">
+          <el-menu-item index="/prefixes">
             <el-icon><List /></el-icon>
             <span>Prefixes</span>
           </el-menu-item>
-          <el-menu-item index="/readonly/vrfs">
+          <el-menu-item index="/vrfs">
             <el-icon><Connection /></el-icon>
             <span>VRFs</span>
           </el-menu-item>
-          <el-menu-item index="/readonly/vpcs">
+          <el-menu-item index="/vpcs">
             <el-icon><Monitor /></el-icon>
             <span>VPCs</span>
           </el-menu-item>
@@ -38,7 +38,7 @@
               style="margin-left: 12px;"
             >
               <el-icon><Setting /></el-icon>
-              Management Interface
+              Admin Portal
             </el-button>
           </div>
         </el-menu>
@@ -47,7 +47,7 @@
         <router-view />
       </el-main>
       <el-footer style="text-align: center; color: #909399; font-size: 12px;">
-        Prefix Management System - Read-Only Interface | 
+        IPAM4Cloud - Read-Only Portal (Port 8081) | 
         <el-icon><InfoFilled /></el-icon>
         This interface provides query-only access to network resources
       </el-footer>
@@ -74,17 +74,17 @@ export default {
     async switchToManagement() {
       try {
         await ElMessageBox.confirm(
-          'You are about to switch to the management interface where you can create, edit, and delete resources. Continue?',
-          'Switch to Management Interface',
+          'You will be redirected to the Admin Portal (port 8080) where you can create, edit, and delete resources. Continue?',
+          'Switch to Admin Portal',
           {
-            confirmButtonText: 'Switch to Management',
+            confirmButtonText: 'Go to Admin Portal',
             cancelButtonText: 'Stay in Read-Only',
             type: 'warning'
           }
         )
         
-        // Switch to management interface
-        window.location.href = '/'
+        // Redirect to admin portal on port 8080
+        window.location.href = 'http://localhost:8080'
       } catch (error) {
         // User cancelled, stay in read-only mode
       }

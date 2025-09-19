@@ -1,0 +1,5 @@
+1. Entry Point & Configuration
+Dev Server: Configured in vue.config.js to run on port 8080 with host 0.0.0.0
+HTML Template: frontend/public/index.html serves as the main HTML file with a <div id="app"> mount point
+Application Bootstrap: frontend/src/main.js creates the Vue app and mounts it to #app
+

@@ -46,15 +46,28 @@ services:
       - ./backend:/backend
     working_dir: /backend
 
-  frontend:
+  admin-frontend:
     build: ./frontend
-    container_name: prefix_frontend
+    container_name: prefix_admin_frontend
     depends_on:
       - backend
     ports:
       - "8080:8080"
     volumes:
       - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - VUE_APP_API_URL=http://localhost:8000
+
+  readonly-frontend:
+    build: ./frontend-readonly
+    container_name: prefix_readonly_frontend
+    depends_on:
+      - backend
+    ports:
+      - "8081:8081"
+    volumes:
+      - ./frontend-readonly:/app
       - /app/node_modules
     environment:
       - VUE_APP_API_URL=http://localhost:8000

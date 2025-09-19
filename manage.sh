@@ -31,7 +31,7 @@ print_error() {
 
 # Function to show help
 show_help() {
-    echo "Prefix Management System Management Script"
+    echo "IPAM4Cloud Management Script - Dual Portal Setup"
     echo ""
     echo "Usage: $0 [command] [options]"
     echo ""
@@ -44,6 +44,12 @@ show_help() {
     echo "  status              Show container status"
     echo "  reset               Complete reset (stop, clean, start)"
     echo ""
+    echo "Dual Portal Services:"
+    echo "  🔧 Admin Portal:    http://localhost:8080 (Full CRUD operations)"
+    echo "  👀 Read-Only Portal: http://localhost:8081 (Query-only access)"
+    echo "  🔧 Backend API:     http://localhost:8000"
+    echo "  🗄️  Database:       localhost:5432"
+    echo ""
     echo "Options:"
     echo "  --clean             Remove all database volumes (fresh start)"
     echo "  -h, --help          Show this help message"
@@ -52,7 +58,8 @@ show_help() {
     echo "  $0 start            # Start with existing data"
     echo "  $0 start --clean    # Start with fresh database"
     echo "  $0 restart --clean  # Restart with fresh database"
-    echo "  $0 logs backend     # Show backend logs"
+    echo "  $0 logs admin-frontend     # Show admin portal logs"
+    echo "  $0 logs readonly-frontend  # Show readonly portal logs"
     echo "  $0 reset            # Complete fresh start"
 }
 
@@ -73,7 +80,8 @@ start_containers() {
     
     print_success "Containers started!"
     print_status "Services available at:"
-    echo "  🌐 Frontend: http://localhost:8080"
+    echo "  🔧 Admin Portal: http://localhost:8080"
+    echo "  👀 Read-Only Portal: http://localhost:8081"
     echo "  🔧 Backend API: http://localhost:8000"
     echo "  🗄️  Database: localhost:5432"
 }
@@ -117,10 +125,16 @@ show_status() {
         echo "  🔧 Backend: Stopped"
     fi
     
-    if docker compose ps --services --filter "status=running" | grep -q "frontend"; then
-        echo "  🌐 Frontend: Running"
+    if docker compose ps --services --filter "status=running" | grep -q "admin-frontend"; then
+        echo "  🔧 Admin Portal: Running (http://localhost:8080)"
     else
-        echo "  🌐 Frontend: Stopped"
+        echo "  🔧 Admin Portal: Stopped"
+    fi
+    
+    if docker compose ps --services --filter "status=running" | grep -q "readonly-frontend"; then
+        echo "  👀 Read-Only Portal: Running (http://localhost:8081)"
+    else
+        echo "  👀 Read-Only Portal: Stopped"
     fi
     
     if docker compose ps --services --filter "status=running" | grep -q "app"; then

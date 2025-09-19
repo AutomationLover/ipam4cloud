@@ -123,7 +123,7 @@
 
 <script>
 import { List, Connection, Monitor, Search, View, InfoFilled } from '@element-plus/icons-vue'
-import { prefixAPI, vrfAPI, vpcAPI } from '../../api'
+import { prefixAPI, vrfAPI, vpcAPI } from '../api'
 import { ElMessage } from 'element-plus'
 
 export default {
