@@ -29,6 +29,9 @@ print_error() {
     echo -e "${RED}❌ $1${NC}"
 }
 
+# Docker Compose command with env file
+DOCKER_COMPOSE="docker compose -f containers/docker-compose.yml --env-file .env"
+
 # Function to show help
 show_help() {
     echo "IPAM4Cloud Management Script - Dual Portal Setup"
@@ -71,12 +74,12 @@ start_containers() {
     
     if [ "$clean_db" = true ]; then
         print_warning "Cleaning database (removing all volumes and data)..."
-        docker compose -f containers/docker-compose.yml -f containers/docker-compose.yml down -v 2>/dev/null || true
+        $DOCKER_COMPOSE down -v 2>/dev/null || true
         print_success "Database cleaned"
     fi
     
     print_status "Starting containers..."
-    docker compose -f containers/docker-compose.yml up -d
+    $DOCKER_COMPOSE up -d
     
     print_success "Containers started!"
     print_status "Services available at:"
@@ -89,7 +92,7 @@ start_containers() {
 # Function to stop containers
 stop_containers() {
     print_status "Stopping containers..."
-    docker compose -f containers/docker-compose.yml down
+    $DOCKER_COMPOSE down
     print_success "Containers stopped"
 }
 
@@ -98,46 +101,46 @@ show_logs() {
     local service=$1
     if [ -n "$service" ]; then
         print_status "Showing logs for $service..."
-        docker compose -f containers/docker-compose.yml logs -f "$service"
+        $DOCKER_COMPOSE logs -f "$service"
     else
         print_status "Showing logs for all services..."
-        docker compose -f containers/docker-compose.yml logs -f
+        $DOCKER_COMPOSE logs -f
     fi
 }
 
 # Function to show status
 show_status() {
     print_status "Container status:"
-    docker compose -f containers/docker-compose.yml ps
+    $DOCKER_COMPOSE ps
     echo ""
     print_status "Service health:"
     
     # Check if containers are running
-    if docker compose -f containers/docker-compose.yml ps --services --filter "status=running" | grep -q "postgres"; then
+    if $DOCKER_COMPOSE ps --services --filter "status=running" | grep -q "postgres"; then
         echo "  🗄️  Database: Running"
     else
         echo "  🗄️  Database: Stopped"
     fi
     
-    if docker compose -f containers/docker-compose.yml ps --services --filter "status=running" | grep -q "backend"; then
+    if $DOCKER_COMPOSE ps --services --filter "status=running" | grep -q "backend"; then
         echo "  🔧 Backend: Running"
     else
         echo "  🔧 Backend: Stopped"
     fi
     
-    if docker compose -f containers/docker-compose.yml ps --services --filter "status=running" | grep -q "admin-frontend"; then
+    if $DOCKER_COMPOSE ps --services --filter "status=running" | grep -q "admin-frontend"; then
         echo "  🔧 Admin Portal: Running (http://localhost:8080)"
     else
         echo "  🔧 Admin Portal: Stopped"
     fi
     
-    if docker compose -f containers/docker-compose.yml ps --services --filter "status=running" | grep -q "readonly-frontend"; then
+    if $DOCKER_COMPOSE ps --services --filter "status=running" | grep -q "readonly-frontend"; then
         echo "  👀 Read-Only Portal: Running (http://localhost:8081)"
     else
         echo "  👀 Read-Only Portal: Stopped"
     fi
     
-    if docker compose -f containers/docker-compose.yml ps --services --filter "status=running" | grep -q "app"; then
+    if $DOCKER_COMPOSE ps --services --filter "status=running" | grep -q "app"; then
         echo "  📊 Demo App: Running"
     else
         echo "  📊 Demo App: Stopped"
@@ -147,16 +150,16 @@ show_status() {
 # Function to clean database
 clean_database() {
     print_warning "Cleaning database (removing volumes)..."
-    docker compose -f containers/docker-compose.yml down -v
+    $DOCKER_COMPOSE down -v
     print_success "Database cleaned"
 }
 
 # Function to reset everything
 reset_system() {
     print_warning "Performing complete system reset..."
-    docker compose -f containers/docker-compose.yml down -v
+    $DOCKER_COMPOSE down -v
     print_status "Starting fresh system..."
-    docker compose -f containers/docker-compose.yml up -d
+    $DOCKER_COMPOSE up -d
     print_success "System reset complete!"
 }
 

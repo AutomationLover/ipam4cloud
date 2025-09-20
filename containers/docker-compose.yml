@@ -91,10 +91,7 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       LOG_DIR: ${LOG_DIR:-logs}
       DEFAULT_VRF_ID: ${DEFAULT_VRF_ID:-prod-vrf}
-      # AWS credentials can be passed via:
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
-      # Or use AWS_PROFILE: ${AWS_PROFILE}
+      # AWS credentials will be read from mounted ~/.aws directory
     volumes:
       - ./app:/app
       - ../requirements.txt:/requirements.txt

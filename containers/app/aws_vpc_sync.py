@@ -16,6 +16,9 @@ from dataclasses import dataclass
 from models import DatabaseManager, PrefixManager, VPC, Prefix
 from json_loader import JSONDataLoader
 
+# Create logs directory if it doesn't exist
+os.makedirs('logs', exist_ok=True)
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
