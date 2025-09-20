@@ -67,3 +67,12 @@ app/data/*.gen.json
 
 # User-generated AWS files (contains real AWS account/VPC data)
 .aws-local/
+
+# Export/Import files
+exports/
+*.export.json
+*_export_*.json
+
+# Documentation files (security-sensitive or environment-specific)
+DOCUMENTATION_SECURITY_UPDATE.md
+ENVIRONMENT_VARIABLES.md

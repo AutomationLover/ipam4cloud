@@ -4,6 +4,7 @@ import Prefixes from '../views/Prefixes.vue'
 import PrefixDetail from '../views/PrefixDetail.vue'
 import VRFs from '../views/VRFs.vue'
 import VPCs from '../views/VPCs.vue'
+import ExportImport from '../views/ExportImport.vue'
 
 const routes = [
   {
@@ -30,6 +31,11 @@ const routes = [
     path: '/vpcs',
     name: 'ReadOnlyVPCs',
     component: VPCs
+  },
+  {
+    path: '/export-import',
+    name: 'ReadOnlyExportImport',
+    component: ExportImport
   }
 ]
 

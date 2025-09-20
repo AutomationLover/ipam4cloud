@@ -16,6 +16,7 @@ from datetime import datetime
 # Add the app directory to Python path to import models
 sys.path.append('/app')
 from models import DatabaseManager, PrefixManager, VRF, VPC, Prefix
+from data_export_import import DataExporter, DataImporter
 
 # Pydantic models for API
 class PrefixResponse(BaseModel):
@@ -1065,6 +1066,116 @@ async def create_vpc_association(
         raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+# Export/Import endpoints
+@app.post("/api/export")
+async def export_data(output_dir: str = "exports"):
+    """Export all system data to JSON files"""
+    try:
+        exporter = DataExporter(db_manager)
+        exported_files = exporter.export_all_data(output_dir)
+        
+        return {
+            "status": "success",
+            "message": "Data exported successfully",
+            "exported_files": exported_files,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
+
+@app.post("/api/import")
+async def import_data(manifest_file: str):
+    """Import data from exported JSON files using manifest"""
+    try:
+        if not os.path.exists(manifest_file):
+            raise HTTPException(status_code=404, detail=f"Manifest file not found: {manifest_file}")
+        
+        importer = DataImporter(db_manager)
+        results = importer.import_from_manifest(manifest_file)
+        
+        if results["summary"]["status"] == "success":
+            return {
+                "status": "success",
+                "message": "Data imported successfully",
+                "results": results,
+                "timestamp": datetime.now().isoformat()
+            }
+        else:
+            raise HTTPException(status_code=400, detail=f"Import failed: {results['summary'].get('error')}")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Import failed: {str(e)}")
+
+@app.get("/api/exports")
+async def list_exports(export_dir: str = "exports"):
+    """List available export files"""
+    try:
+        from pathlib import Path
+        import json
+        
+        export_path = Path(export_dir)
+        if not export_path.exists():
+            return {"exports": [], "message": "No exports directory found"}
+        
+        exports = []
+        
+        # Find all manifest files
+        for manifest_file in export_path.glob("export_manifest_*.json"):
+            try:
+                with open(manifest_file, 'r') as f:
+                    manifest = json.load(f)
+                
+                exports.append({
+                    "manifest_file": str(manifest_file),
+                    "timestamp": manifest["export_info"]["timestamp"],
+                    "summary": manifest.get("summary", {}),
+                    "files": manifest.get("exported_files", {})
+                })
+            except Exception as e:
+                # Skip invalid manifest files
+                continue
+        
+        # Sort by timestamp (newest first)
+        exports.sort(key=lambda x: x["timestamp"], reverse=True)
+        
+        return {
+            "exports": exports,
+            "count": len(exports)
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list exports: {str(e)}")
+
+@app.get("/api/download")
+async def download_file(file: str):
+    """Download an export file"""
+    try:
+        from fastapi.responses import FileResponse
+        from pathlib import Path
+        
+        file_path = Path(file)
+        
+        # Security check: ensure file is within allowed directory
+        if not file_path.is_file() or not file_path.exists():
+            raise HTTPException(status_code=404, detail="File not found")
+        
+        # Additional security: only allow files in exports directory
+        if not str(file_path.resolve()).startswith(str(Path("exports").resolve())):
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        return FileResponse(
+            path=file_path,
+            filename=file_path.name,
+            media_type='application/json'
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to download file: {str(e)}")
 
 # Health check
 @app.get("/health")

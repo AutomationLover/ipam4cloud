@@ -6,6 +6,7 @@ import VRFs from '../views/VRFs.vue'
 import VRFDetail from '../views/VRFDetail.vue'
 import VPCs from '../views/VPCs.vue'
 import VPCDetail from '../views/VPCDetail.vue'
+import ExportImport from '../views/ExportImport.vue'
 
 const routes = [
   // Management interface routes
@@ -43,6 +44,11 @@ const routes = [
     path: '/vpcs/:vpcId',
     name: 'VPCDetail',
     component: VPCDetail
+  },
+  {
+    path: '/export-import',
+    name: 'ExportImport',
+    component: ExportImport
   }
 ]
 

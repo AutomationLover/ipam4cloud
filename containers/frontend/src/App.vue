@@ -26,6 +26,10 @@
             <el-icon><Monitor /></el-icon>
             <span>VPCs</span>
           </el-menu-item>
+          <el-menu-item index="/export-import">
+            <el-icon><Download /></el-icon>
+            <span>Export/Import</span>
+          </el-menu-item>
         </el-menu>
       </el-header>
       <el-main>
@@ -36,7 +40,7 @@
 </template>
 
 <script>
-import { Grid, List, Connection, Monitor } from '@element-plus/icons-vue'
+import { Grid, List, Connection, Monitor, Download } from '@element-plus/icons-vue'
 
 export default {
   name: 'App',
@@ -44,7 +48,8 @@ export default {
     Grid,
     List,
     Connection,
-    Monitor
+    Monitor,
+    Download
   },
   methods: {
     // Reserved for future methods

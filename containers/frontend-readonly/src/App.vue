@@ -26,6 +26,10 @@
             <el-icon><Monitor /></el-icon>
             <span>VPCs</span>
           </el-menu-item>
+          <el-menu-item index="/export-import">
+            <el-icon><View /></el-icon>
+            <span>Export Viewer</span>
+          </el-menu-item>
         </el-menu>
       </el-header>
       <el-main>
@@ -41,7 +45,7 @@
 </template>
 
 <script>
-import { Grid, List, Connection, Monitor } from '@element-plus/icons-vue'
+import { Grid, List, Connection, Monitor, View } from '@element-plus/icons-vue'
 
 export default {
   name: 'ReadOnlyApp',
@@ -49,7 +53,8 @@ export default {
     Grid,
     List,
     Connection,
-    Monitor
+    Monitor,
+    View
   },
   methods: {
     // Reserved for future methods

@@ -115,4 +115,28 @@ export const healthAPI = {
   check: () => api.get('/health')
 }
 
+// Export/Import API
+export const exportImportAPI = {
+  // Export all data
+  exportData: (outputDir = 'exports') => api.post(`/api/export?output_dir=${outputDir}`),
+  
+  // Import data from manifest
+  importData: (manifestFile) => api.post('/api/import', { manifest_file: manifestFile }),
+  
+  // List available exports
+  listExports: (exportDir = 'exports') => api.get(`/api/exports?export_dir=${exportDir}`),
+  
+  // Download export file (this will be handled differently for file downloads)
+  downloadExport: (filePath) => {
+    // Create a download link for the file
+    const link = document.createElement('a')
+    link.href = `${API_BASE_URL}/api/download?file=${encodeURIComponent(filePath)}`
+    link.download = filePath.split('/').pop()
+    link.target = '_blank'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  }
+}
+
 export default api
