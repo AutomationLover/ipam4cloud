@@ -382,18 +382,14 @@ export default {
     },
     
     formatVRFDisplay(vrfId) {
-      const parsed = this.parseVRFId(vrfId)
-      if (parsed) {
-        return `${parsed.provider.toUpperCase()} VPC ${parsed.vpcId}`
-      }
+      // Return the VRF ID as-is for consistency and completeness
+      // VRF IDs contain all necessary info: provider_account_vpcid
       return vrfId
     },
 
     getVRFDetails(vrfId) {
-      const parsed = this.parseVRFId(vrfId)
-      if (parsed && parsed.account) {
-        return `Account: ${parsed.account}`
-      }
+      // No additional details needed since VRF ID is now shown in full
+      // VRF ID format: provider_account_vpcid contains all info
       return null
     },
 
