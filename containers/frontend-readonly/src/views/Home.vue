@@ -31,7 +31,7 @@
 
     <el-row :gutter="20" style="margin-top: 20px;">
       <el-col :span="8">
-        <el-card class="stat-card" @click="$router.push('/readonly/prefixes')">
+        <el-card class="stat-card" @click="$router.push('/prefixes')">
           <div class="stat-content">
             <div class="stat-icon">
               <el-icon size="40" color="#409EFF"><List /></el-icon>
@@ -45,7 +45,7 @@
       </el-col>
       
       <el-col :span="8">
-        <el-card class="stat-card" @click="$router.push('/readonly/vrfs')">
+        <el-card class="stat-card" @click="$router.push('/vrfs')">
           <div class="stat-content">
             <div class="stat-icon">
               <el-icon size="40" color="#67C23A"><Connection /></el-icon>
@@ -59,7 +59,7 @@
       </el-col>
       
       <el-col :span="8">
-        <el-card class="stat-card" @click="$router.push('/readonly/vpcs')">
+        <el-card class="stat-card" @click="$router.push('/vpcs')">
           <div class="stat-content">
             <div class="stat-icon">
               <el-icon size="40" color="#E6A23C"><Monitor /></el-icon>
@@ -80,15 +80,15 @@
             <span>Quick Actions</span>
           </template>
           <div class="quick-actions">
-            <el-button type="primary" @click="$router.push('/readonly/prefixes')">
+            <el-button type="primary" @click="$router.push('/prefixes')">
               <el-icon><Search /></el-icon>
               Search Prefixes
             </el-button>
-            <el-button type="success" @click="$router.push('/readonly/vrfs')">
+            <el-button type="success" @click="$router.push('/vrfs')">
               <el-icon><Connection /></el-icon>
               Browse VRFs
             </el-button>
-            <el-button type="warning" @click="$router.push('/readonly/vpcs')">
+            <el-button type="warning" @click="$router.push('/vpcs')">
               <el-icon><Monitor /></el-icon>
               View VPCs
             </el-button>
