@@ -155,7 +155,7 @@
           style="width: 100%"
           @sort-change="handleSortChange"
         >
-          <el-table-column label="CIDR" sortable width="150">
+          <el-table-column label="CIDR" width="150">
             <template #default="scope">
               <router-link 
                 :to="`/prefixes/${scope.row.prefix_id}`"
@@ -203,6 +203,19 @@
           </el-table-column>
           <!-- No Actions column for read-only view -->
         </el-table>
+        
+        <!-- Pagination -->
+        <div class="pagination-container">
+          <el-pagination
+            v-model:current-page="pagination.currentPage"
+            v-model:page-size="pagination.pageSize"
+            :page-sizes="pagination.pageSizes"
+            :total="pagination.total"
+            layout="total, sizes, prev, pager, next, jumper"
+            @size-change="handleSizeChange"
+            @current-change="handleCurrentChange"
+          />
+        </div>
       </div>
       
       <!-- Tree View -->
@@ -267,6 +280,13 @@ export default {
         routable: '',
         search: ''
       },
+      // Pagination
+      pagination: {
+        currentPage: 1,
+        pageSize: 50,
+        total: 0,
+        pageSizes: [10, 20, 50, 100, 200]
+      },
       treeProps: {
         children: 'children',
         label: 'cidr'
@@ -306,11 +326,11 @@ export default {
       this.loading = true
       try {
         const params = {}
+        let allPrefixes = []
         
         // Handle multiple VRF selection
         if (this.filters.vrfIds && this.filters.vrfIds.length > 0) {
           // For multiple VRFs, we need to make multiple API calls and combine results
-          const allPrefixes = []
           for (const vrfId of this.filters.vrfIds) {
             const vrfParams = { ...params, vrf_id: vrfId }
             if (this.filters.source) vrfParams.source = this.filters.source
@@ -322,11 +342,9 @@ export default {
           }
           
           // Remove duplicates based on prefix_id
-          const uniquePrefixes = allPrefixes.filter((prefix, index, self) => 
+          allPrefixes = allPrefixes.filter((prefix, index, self) => 
             index === self.findIndex(p => p.prefix_id === prefix.prefix_id)
           )
-          
-          this.prefixes = uniquePrefixes
         } else {
           // No VRF filter or empty selection - load all prefixes
           if (this.filters.source) params.source = this.filters.source
@@ -334,8 +352,15 @@ export default {
           if (this.filters.search) params.search = this.filters.search
           
           const response = await prefixAPI.getPrefixes(params)
-          this.prefixes = response.data
+          allPrefixes = response.data
         }
+        
+        // Apply pagination
+        this.pagination.total = allPrefixes.length
+        const startIndex = (this.pagination.currentPage - 1) * this.pagination.pageSize
+        const endIndex = startIndex + this.pagination.pageSize
+        this.prefixes = allPrefixes.slice(startIndex, endIndex)
+        
       } catch (error) {
         ElMessage.error('Failed to load prefixes')
         console.error(error)
@@ -392,6 +417,18 @@ export default {
         })
       }
     },
+    
+    // Pagination handlers
+    handleSizeChange(newSize) {
+      this.pagination.pageSize = newSize
+      this.pagination.currentPage = 1 // Reset to first page when changing page size
+      this.loadData()
+    },
+    
+    handleCurrentChange(newPage) {
+      this.pagination.currentPage = newPage
+      this.loadData()
+    },
 
     // Search help methods
     toggleSearchHelp() {
@@ -414,18 +451,14 @@ export default {
 
     // VRF formatting methods
     formatVRFDisplay(vrfId) {
-      const parsed = this.parseVRFId(vrfId)
-      if (parsed) {
-        return `${parsed.provider.toUpperCase()} VPC ${parsed.vpcId}`
-      }
+      // Return the VRF ID as-is for consistency and completeness
+      // VRF IDs contain all necessary info: provider_account_vpcid
       return vrfId
     },
 
     getVRFDetails(vrfId) {
-      const parsed = this.parseVRFId(vrfId)
-      if (parsed && parsed.account) {
-        return `Account: ${parsed.account}`
-      }
+      // No additional details needed since VRF ID is now shown in full
+      // VRF ID format: provider_account_vpcid contains all info
       return null
     },
 
@@ -612,6 +645,14 @@ export default {
   font-size: 11px;
   color: #909399;
   font-style: italic;
+}
+
+/* Pagination styles */
+.pagination-container {
+  display: flex;
+  justify-content: center;
+  margin-top: 20px;
+  padding: 20px 0;
 }
 
 .node-vrf .vrf-primary {
