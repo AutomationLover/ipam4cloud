@@ -6,7 +6,8 @@ import VRFs from '../views/VRFs.vue'
 import VRFDetail from '../views/VRFDetail.vue'
 import VPCs from '../views/VPCs.vue'
 import VPCDetail from '../views/VPCDetail.vue'
-import ExportImport from '../views/ExportImport.vue'
+import BackupRestore from '../views/BackupRestore.vue'
+import PCExportImport from '../views/PCExportImport.vue'
 
 const routes = [
   // Management interface routes
@@ -46,9 +47,14 @@ const routes = [
     component: VPCDetail
   },
   {
-    path: '/export-import',
-    name: 'ExportImport',
-    component: ExportImport
+    path: '/backup-restore',
+    name: 'BackupRestore',
+    component: BackupRestore
+  },
+  {
+    path: '/pc-export-import',
+    name: 'PCExportImport',
+    component: PCExportImport
   }
 ]
 

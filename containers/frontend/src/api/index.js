@@ -115,28 +115,46 @@ export const healthAPI = {
   check: () => api.get('/health')
 }
 
-// Export/Import API
-export const exportImportAPI = {
-  // Export all data
-  exportData: (outputDir = 'exports') => api.post(`/api/export?output_dir=${outputDir}`),
+// Backup/Restore API (Internal Docker storage)
+export const backupAPI = {
+  // Create a new backup
+  createBackup: (description) => api.post('/api/backup', null, { params: { description } }),
   
-  // Import data from manifest
-  importData: (manifestFile) => api.post('/api/import', { manifest_file: manifestFile }),
+  // List all backups
+  listBackups: () => api.get('/api/backups'),
   
-  // List available exports
-  listExports: (exportDir = 'exports') => api.get(`/api/exports?export_dir=${exportDir}`),
+  // Restore from backup
+  restoreBackup: (backupId) => api.post(`/api/restore/${backupId}`),
   
-  // Download export file (this will be handled differently for file downloads)
-  downloadExport: (filePath) => {
-    // Create a download link for the file
-    const link = document.createElement('a')
-    link.href = `${API_BASE_URL}/api/download?file=${encodeURIComponent(filePath)}`
-    link.download = filePath.split('/').pop()
-    link.target = '_blank'
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-  }
+  // Delete backup
+  deleteBackup: (backupId) => api.delete(`/api/backup/${backupId}`),
+  
+  // Get backup details
+  getBackupDetails: (backupId) => api.get(`/api/backup/${backupId}`)
 }
+
+// PC Export/Import API (User's PC folders)
+export const pcExportImportAPI = {
+  // Export to PC folder
+  exportToPC: (pcFolder, exportName) => api.post('/api/pc-export', null, { 
+    params: { pc_folder: pcFolder, export_name: exportName } 
+  }),
+  
+  // Import from PC folder
+  importFromPC: (pcFolder) => api.post('/api/pc-import', null, { 
+    params: { pc_folder: pcFolder } 
+  }),
+  
+  // Scan PC folder for exports
+  scanPCFolder: (pcFolder) => api.get('/api/pc-scan', { 
+    params: { pc_folder: pcFolder } 
+  }),
+  
+  // Validate PC folder export
+  validatePCFolder: (pcFolder) => api.get('/api/pc-validate', { 
+    params: { pc_folder: pcFolder } 
+  })
+}
+
 
 export default api

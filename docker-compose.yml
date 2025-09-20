@@ -28,7 +28,7 @@ services:
       DATABASE_URL: postgresql://prefix_user:prefix_pass@postgres:5432/prefix_management
     volumes:
       - ./app:/app
-      - ../requirements.txt:/requirements.txt
+      - ./requirements.txt:/requirements.txt
     working_dir: /app
     command: sh -c "pip install -r /requirements.txt && python main.py"
 
@@ -45,8 +45,6 @@ services:
     volumes:
       - ./app:/app
       - ./backend:/backend
-      - ../exports:/app/exports  # Mount exports directory to local PC
-      - ${HOME}:${HOME}  # Mount user's home directory for PC export/import
     working_dir: /backend
 
   admin-frontend:
@@ -93,12 +91,14 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       LOG_DIR: ${LOG_DIR:-logs}
       DEFAULT_VRF_ID: ${DEFAULT_VRF_ID:-prod-vrf}
-      # AWS credentials will be read from mounted ~/.aws directory
+      # AWS credentials can be passed via:
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      # Or use AWS_PROFILE: ${AWS_PROFILE}
     volumes:
       - ./app:/app
-      - ../requirements.txt:/requirements.txt
+      - ./requirements.txt:/requirements.txt
       - ~/.aws:/root/.aws:ro  # Mount AWS credentials (read-only)
-      - ../exports:/app/exports  # Mount exports directory to local PC
     working_dir: /app
     command: sh -c "apt-get update && apt-get install -y gcc && pip install -r /requirements.txt && python aws_vpc_sync.py"
     restart: unless-stopped

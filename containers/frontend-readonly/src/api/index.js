@@ -112,22 +112,5 @@ export const healthAPI = {
   check: () => api.get('/health')
 }
 
-// Export/Import API (Read-only)
-export const exportImportAPI = {
-  // List available exports
-  listExports: (exportDir = 'exports') => api.get(`/api/exports?export_dir=${exportDir}`),
-  
-  // Download export file
-  downloadExport: (filePath) => {
-    // Create a download link for the file
-    const link = document.createElement('a')
-    link.href = `${API_BASE_URL}/api/download?file=${encodeURIComponent(filePath)}`
-    link.download = filePath.split('/').pop()
-    link.target = '_blank'
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-  }
-}
 
 export default api

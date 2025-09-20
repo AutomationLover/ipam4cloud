@@ -73,6 +73,14 @@ exports/
 *.export.json
 *_export_*.json
 
+# Backup files (runtime-generated)
+containers/backend/backups/
+backups/
+*.backup.json
+backup_info.json
+export_manifest_*.json
+
 # Documentation files (security-sensitive or environment-specific)
 DOCUMENTATION_SECURITY_UPDATE.md
 ENVIRONMENT_VARIABLES.md
+

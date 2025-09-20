@@ -26,10 +26,20 @@
             <el-icon><Monitor /></el-icon>
             <span>VPCs</span>
           </el-menu-item>
-          <el-menu-item index="/export-import">
-            <el-icon><Download /></el-icon>
-            <span>Export/Import</span>
-          </el-menu-item>
+          <el-sub-menu index="data-management">
+            <template #title>
+              <el-icon><Download /></el-icon>
+              <span>Data Management</span>
+            </template>
+            <el-menu-item index="/backup-restore">
+              <el-icon><Clock /></el-icon>
+              <span>Backup & Restore</span>
+            </el-menu-item>
+            <el-menu-item index="/pc-export-import">
+              <el-icon><FolderOpened /></el-icon>
+              <span>PC Export & Import</span>
+            </el-menu-item>
+          </el-sub-menu>
         </el-menu>
       </el-header>
       <el-main>
@@ -40,7 +50,7 @@
 </template>
 
 <script>
-import { Grid, List, Connection, Monitor, Download } from '@element-plus/icons-vue'
+import { Grid, List, Connection, Monitor, Download, Clock, FolderOpened } from '@element-plus/icons-vue'
 
 export default {
   name: 'App',
@@ -49,7 +59,9 @@ export default {
     List,
     Connection,
     Monitor,
-    Download
+    Download,
+    Clock,
+    FolderOpened
   },
   methods: {
     // Reserved for future methods

@@ -307,6 +307,62 @@ docker system prune -f
 docker compose -f containers/docker-compose.yml up --build
 ```
 
+## 📊 Data Management
+
+The system provides two distinct data management features:
+
+### 🔄 Backup & Restore System
+**Internal Docker storage with timeline functionality**
+
+- **Purpose**: Quick system snapshots and recovery
+- **Storage**: Inside Docker containers (`/app/backups/`)
+- **Features**: Timeline view, one-click restore, automatic cleanup
+- **Access**: Web GUI, CLI, API
+
+```bash
+# Create backup
+./backup_restore_cli.sh backup "Before major update"
+
+# List backups
+./backup_restore_cli.sh list
+
+# Restore from backup
+./backup_restore_cli.sh restore 20250920_143022
+
+# View backup details
+./backup_restore_cli.sh details 20250920_143022
+
+# Cleanup old backups (keep 5 recent)
+./backup_restore_cli.sh cleanup 5
+```
+
+**Web Interface**: http://localhost:8080/backup-restore
+
+### 📁 PC Export & Import System
+**Export to your PC folders and import from external sources**
+
+- **Purpose**: Data migration and external sharing
+- **Storage**: User's PC folders (any path)
+- **Features**: Custom paths, folder scanning, validation
+- **Access**: Web GUI, CLI, API
+
+```bash
+# Export to PC
+./pc_export_import_cli.sh export "/Users/john/ipam-exports" "my_export"
+
+# Import from PC
+./pc_export_import_cli.sh import "/Users/john/ipam-exports/my_export"
+
+# Scan PC folder for exports
+./pc_export_import_cli.sh scan "/Users/john/ipam-exports"
+
+# Validate PC folder
+./pc_export_import_cli.sh validate "/Users/john/ipam-exports/my_export"
+```
+
+**Web Interface**: http://localhost:8080/pc-export-import
+
+
 ## 🔒 Security
 
 - **Environment Variables**: All AWS-specific values are externalized
@@ -379,6 +435,8 @@ For more detailed information, see the `docs/` directory:
 - **[Environment Setup Guide](docs/ENV_SETUP.md)** - Detailed environment configuration
 - **[Web Interface Guide](docs/WEB_APP_README.md)** - Complete web interface documentation
 - **[AWS Sync Guide](docs/AWS_SYNC_README.md)** - AWS integration and sync service details
+- **[Backup & Restore Guide](docs/BACKUP_RESTORE_FEATURE.md)** - Internal backup system documentation
+- **[PC Export/Import Guide](docs/PC_EXPORT_IMPORT_FEATURE.md)** - PC folder export/import system
 - **[Demo Results](docs/DEMO_RESULTS.md)** - Example output and demo scenarios
 
 **Need help?** Check the troubleshooting section above or open an issue on GitHub.

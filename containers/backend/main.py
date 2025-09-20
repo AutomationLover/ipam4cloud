@@ -17,6 +17,8 @@ from datetime import datetime
 sys.path.append('/app')
 from models import DatabaseManager, PrefixManager, VRF, VPC, Prefix
 from data_export_import import DataExporter, DataImporter
+from backup_restore import BackupManager
+from pc_export_import import PCExportImportManager
 
 # Pydantic models for API
 class PrefixResponse(BaseModel):
@@ -1067,115 +1069,195 @@ async def create_vpc_association(
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-# Export/Import endpoints
-@app.post("/api/export")
-async def export_data(output_dir: str = "exports"):
-    """Export all system data to JSON files"""
+# Backup/Restore endpoints (Internal Docker storage)
+@app.post("/api/backup")
+async def create_backup(description: str = None):
+    """Create a new internal backup"""
     try:
-        exporter = DataExporter(db_manager)
-        exported_files = exporter.export_all_data(output_dir)
+        backup_manager = BackupManager(db_manager)
+        result = backup_manager.create_backup(description)
         
-        return {
-            "status": "success",
-            "message": "Data exported successfully",
-            "exported_files": exported_files,
-            "timestamp": datetime.now().isoformat()
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
-
-@app.post("/api/import")
-async def import_data(manifest_file: str):
-    """Import data from exported JSON files using manifest"""
-    try:
-        if not os.path.exists(manifest_file):
-            raise HTTPException(status_code=404, detail=f"Manifest file not found: {manifest_file}")
-        
-        importer = DataImporter(db_manager)
-        results = importer.import_from_manifest(manifest_file)
-        
-        if results["summary"]["status"] == "success":
+        if result["status"] == "success":
             return {
                 "status": "success",
-                "message": "Data imported successfully",
-                "results": results,
+                "message": "Backup created successfully",
+                "backup_id": result["backup_id"],
+                "backup_info": result["backup_info"],
                 "timestamp": datetime.now().isoformat()
             }
         else:
-            raise HTTPException(status_code=400, detail=f"Import failed: {results['summary'].get('error')}")
+            raise HTTPException(status_code=500, detail=f"Backup failed: {result['error']}")
             
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Import failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Backup failed: {str(e)}")
 
-@app.get("/api/exports")
-async def list_exports(export_dir: str = "exports"):
-    """List available export files"""
+@app.get("/api/backups")
+async def list_backups():
+    """List all available backups"""
     try:
-        from pathlib import Path
-        import json
-        
-        export_path = Path(export_dir)
-        if not export_path.exists():
-            return {"exports": [], "message": "No exports directory found"}
-        
-        exports = []
-        
-        # Find all manifest files
-        for manifest_file in export_path.glob("export_manifest_*.json"):
-            try:
-                with open(manifest_file, 'r') as f:
-                    manifest = json.load(f)
-                
-                exports.append({
-                    "manifest_file": str(manifest_file),
-                    "timestamp": manifest["export_info"]["timestamp"],
-                    "summary": manifest.get("summary", {}),
-                    "files": manifest.get("exported_files", {})
-                })
-            except Exception as e:
-                # Skip invalid manifest files
-                continue
-        
-        # Sort by timestamp (newest first)
-        exports.sort(key=lambda x: x["timestamp"], reverse=True)
+        backup_manager = BackupManager(db_manager)
+        backups = backup_manager.list_backups()
         
         return {
-            "exports": exports,
-            "count": len(exports)
+            "status": "success",
+            "backups": backups,
+            "count": len(backups)
         }
         
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to list exports: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to list backups: {str(e)}")
 
-@app.get("/api/download")
-async def download_file(file: str):
-    """Download an export file"""
+@app.post("/api/restore/{backup_id}")
+async def restore_backup(backup_id: str):
+    """Restore from a specific backup"""
     try:
-        from fastapi.responses import FileResponse
-        from pathlib import Path
+        backup_manager = BackupManager(db_manager)
+        result = backup_manager.restore_backup(backup_id)
         
-        file_path = Path(file)
-        
-        # Security check: ensure file is within allowed directory
-        if not file_path.is_file() or not file_path.exists():
-            raise HTTPException(status_code=404, detail="File not found")
-        
-        # Additional security: only allow files in exports directory
-        if not str(file_path.resolve()).startswith(str(Path("exports").resolve())):
-            raise HTTPException(status_code=403, detail="Access denied")
-        
-        return FileResponse(
-            path=file_path,
-            filename=file_path.name,
-            media_type='application/json'
-        )
-        
+        if result["status"] == "success":
+            return {
+                "status": "success",
+                "message": result["message"],
+                "backup_id": backup_id,
+                "restore_results": result["restore_results"],
+                "timestamp": datetime.now().isoformat()
+            }
+        else:
+            raise HTTPException(status_code=400, detail=f"Restore failed: {result['error']}")
+            
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to download file: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Restore failed: {str(e)}")
+
+@app.delete("/api/backup/{backup_id}")
+async def delete_backup(backup_id: str):
+    """Delete a specific backup"""
+    try:
+        backup_manager = BackupManager(db_manager)
+        result = backup_manager.delete_backup(backup_id)
+        
+        if result["status"] == "success":
+            return {
+                "status": "success",
+                "message": result["message"]
+            }
+        else:
+            raise HTTPException(status_code=400, detail=result["error"])
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete backup: {str(e)}")
+
+@app.get("/api/backup/{backup_id}")
+async def get_backup_details(backup_id: str):
+    """Get detailed information about a specific backup"""
+    try:
+        backup_manager = BackupManager(db_manager)
+        result = backup_manager.get_backup_details(backup_id)
+        
+        if result["status"] == "success":
+            return {
+                "status": "success",
+                "backup_info": result["backup_info"]
+            }
+        else:
+            raise HTTPException(status_code=404, detail=result["error"])
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get backup details: {str(e)}")
+
+# PC Export/Import endpoints (User's PC folders)
+@app.post("/api/pc-export")
+async def pc_export_data(pc_folder: str, export_name: str = None):
+    """Export data to user's PC folder"""
+    try:
+        pc_manager = PCExportImportManager(db_manager)
+        result = pc_manager.export_to_pc(pc_folder, export_name)
+        
+        if result["status"] == "success":
+            return {
+                "status": "success",
+                "message": "Data exported to PC successfully",
+                "export_name": result["export_name"],
+                "export_path": result["export_path"],
+                "files_created": result["files_created"],
+                "timestamp": datetime.now().isoformat()
+            }
+        else:
+            raise HTTPException(status_code=400, detail=result["error"])
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"PC export failed: {str(e)}")
+
+@app.post("/api/pc-import")
+async def pc_import_data(pc_folder: str):
+    """Import data from user's PC folder"""
+    try:
+        pc_manager = PCExportImportManager(db_manager)
+        result = pc_manager.import_from_pc(pc_folder)
+        
+        if result["status"] == "success":
+            return {
+                "status": "success",
+                "message": result["message"],
+                "import_results": result["import_results"],
+                "timestamp": datetime.now().isoformat()
+            }
+        else:
+            raise HTTPException(status_code=400, detail=result["error"])
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"PC import failed: {str(e)}")
+
+@app.get("/api/pc-scan")
+async def scan_pc_folder(pc_folder: str):
+    """Scan user's PC folder for importable exports"""
+    try:
+        pc_manager = PCExportImportManager(db_manager)
+        result = pc_manager.scan_pc_folder(pc_folder)
+        
+        if result["status"] == "success":
+            return {
+                "status": "success",
+                "pc_folder": result["pc_folder"],
+                "exports_found": result["exports_found"],
+                "valid_exports": result["valid_exports"],
+                "total_items": result["total_items"]
+            }
+        else:
+            raise HTTPException(status_code=400, detail=result["error"])
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"PC scan failed: {str(e)}")
+
+@app.get("/api/pc-validate")
+async def validate_pc_folder(pc_folder: str):
+    """Validate that PC folder contains valid IPAM export"""
+    try:
+        pc_manager = PCExportImportManager(db_manager)
+        result = pc_manager.validate_pc_export(pc_folder)
+        
+        if result["status"] == "success":
+            return {
+                "status": "success",
+                "validation": result["validation"]
+            }
+        else:
+            raise HTTPException(status_code=400, detail=result["error"])
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"PC validation failed: {str(e)}")
+
 
 # Health check
 @app.get("/health")

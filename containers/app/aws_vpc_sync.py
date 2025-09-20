@@ -279,20 +279,34 @@ class AWSVPCSubnetSync:
                     'last_sync': datetime.utcnow().isoformat()
                 })
                 
-                # Inherit routable status from parent if parent exists
+                # Determine routable status and VRF assignment
                 subnet_routable = True  # Default to routable
-                if vpc_cidr_prefix:
-                    subnet_routable = vpc_cidr_prefix.routable
-                    logger.info(f"Subnet {subnet_data['cidr_block']} inheriting routable={subnet_routable} from parent")
+                subnet_vrf_id = 'prod-vrf'  # Default VRF
+                
+                if vpc_association and vpc_cidr_prefix:
+                    # Use the association's routable flag
+                    subnet_routable = vpc_association.routable
+                    logger.info(f"Subnet {subnet_data['cidr_block']} routable={subnet_routable} from VPC association")
+                    
+                    if subnet_routable:
+                        # Routable subnet: use parent prefix's VRF
+                        subnet_vrf_id = vpc_cidr_prefix.vrf_id
+                        logger.info(f"Routable subnet using parent VRF: {subnet_vrf_id}")
+                    else:
+                        # Non-routable subnet: use VPC-specific VRF
+                        subnet_vrf_id = self._ensure_vpc_vrf(vpc, session)
+                        logger.info(f"Non-routable subnet using VPC-specific VRF: {subnet_vrf_id}")
+                else:
+                    logger.warning(f"No VPC association found, using default routable=True and prod-vrf")
                 
                 prefix = Prefix(
                     prefix_id=prefix_id,
-                    vrf_id='prod-vrf',  # Assuming prod-vrf for VPC subnets
+                    vrf_id=subnet_vrf_id,
                     cidr=subnet_data['cidr_block'],
                     tags=tags,
                     parent_prefix_id=parent_prefix_id,
                     source='vpc',
-                    routable=subnet_routable,  # Inherit from parent
+                    routable=subnet_routable,
                     vpc_children_type_flag=False,
                     vpc_id=vpc.vpc_id  # Required for VPC-sourced prefixes
                 )
@@ -306,6 +320,37 @@ class AWSVPCSubnetSync:
                 
         except Exception as e:
             logger.error(f"Failed to create subnet prefix {subnet_data['cidr_block']}: {e}")
+    
+    def _ensure_vpc_vrf(self, vpc: VPC, session) -> str:
+        """Ensure VPC-specific VRF exists for non-routable subnets, following database logic"""
+        from models import VRF
+        
+        # Create meaningful VRF name: provider_account_providerVPCID
+        vrf_name = f"{vpc.provider}_{vpc.provider_account_id or 'unknown'}_{vpc.provider_vpc_id}"
+        
+        # Check if VRF already exists
+        existing_vrf = session.query(VRF).filter(VRF.vrf_id == vrf_name).first()
+        if existing_vrf:
+            logger.debug(f"VPC VRF already exists: {vrf_name}")
+            return vrf_name
+        
+        # Create new VPC-specific VRF
+        description = f"Auto VRF for {vpc.provider} VPC {vpc.provider_vpc_id}"
+        if vpc.provider_account_id:
+            description += f" (Account: {vpc.provider_account_id})"
+        
+        vpc_vrf = VRF(
+            vrf_id=vrf_name,
+            description=description,
+            is_default=False,
+            routable_flag=False  # VPC-specific VRFs are non-routable
+        )
+        
+        session.add(vpc_vrf)
+        session.commit()
+        logger.info(f"Created VPC-specific VRF: {vrf_name}")
+        
+        return vrf_name
     
     def _update_subnet_prefix(self, vpc: VPC, subnet_data: Dict[str, Any]):
         """Update existing subnet prefix with latest AWS data"""
