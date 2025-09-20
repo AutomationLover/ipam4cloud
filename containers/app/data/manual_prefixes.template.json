@@ -1,0 +1,120 @@
+{
+  "description": "Manual prefix reservations and allocations",
+  "prefixes": [
+    {
+      "vrf_id": "prod-vrf",
+      "cidr": "10.0.0.0/8",
+      "parent_prefix_id": null,
+      "tags": {
+        "purpose": "root_allocation",
+        "description": "RFC1918 Class A private space"
+      },
+      "routable": true,
+      "description": "Root allocation for private IPv4 space"
+    },
+    {
+      "vrf_id": "prod-vrf",
+      "cidr": "10.1.0.0/16",
+      "parent_prefix_id": "manual-prod-vrf-10-0-0-0-8",
+      "tags": {
+        "purpose": "vpc_reservation",
+        "description": "Reserved for production application VPC",
+        "env": "prod"
+      },
+      "routable": true,
+      "vpc_children_type_flag": true,
+      "description": "VPC reservation for production application services"
+    },
+    {
+      "vrf_id": "prod-vrf",
+      "cidr": "10.2.0.0/16",
+      "parent_prefix_id": "manual-prod-vrf-10-0-0-0-8",
+      "tags": {
+        "purpose": "vpc_reservation",
+        "description": "Reserved for development/test VPC",
+        "env": "dev"
+      },
+      "routable": false,
+      "vpc_children_type_flag": true,
+      "description": "VPC reservation for non-routable development services"
+    },
+    {
+      "vrf_id": "${DEFAULT_VRF_ID}",
+      "cidr": "${TEST_VPC_1_CIDR}",
+      "parent_prefix_id": "manual-${DEFAULT_VRF_ID}-10-0-0-0-8",
+      "tags": {
+        "purpose": "vpc_reservation",
+        "description": "Reserved for ${TEST_VPC_1_NAME}",
+        "env": "test",
+        "aws_vpc_id": "${TEST_VPC_1_ID}"
+      },
+      "routable": true,
+      "vpc_children_type_flag": true,
+      "description": "VPC reservation for routable ipam4cloud test services"
+    },
+    {
+      "vrf_id": "${DEFAULT_VRF_ID}",
+      "cidr": "${TEST_VPC_2_CIDR}",
+      "parent_prefix_id": "manual-${DEFAULT_VRF_ID}-10-0-0-0-8",
+      "tags": {
+        "purpose": "vpc_reservation",
+        "description": "Reserved for ${TEST_VPC_2_NAME}",
+        "env": "test",
+        "aws_vpc_id": "${TEST_VPC_2_ID}"
+      },
+      "routable": false,
+      "vpc_children_type_flag": true,
+      "description": "VPC reservation for non-routable ipam4cloud test services"
+    },
+    {
+      "vrf_id": "prod-vrf",
+      "cidr": "10.3.0.0/16",
+      "parent_prefix_id": "manual-prod-vrf-10-0-0-0-8",
+      "tags": {
+        "purpose": "vpc_reservation",
+        "description": "Reserved for Azure production VNet",
+        "env": "prod",
+        "cloud": "azure"
+      },
+      "routable": true,
+      "vpc_children_type_flag": true,
+      "description": "VNet reservation for Azure production services"
+    },
+    {
+      "vrf_id": "prod-vrf",
+      "cidr": "10.4.0.0/16",
+      "parent_prefix_id": "manual-prod-vrf-10-0-0-0-8",
+      "tags": {
+        "purpose": "vpc_reservation",
+        "description": "Reserved for GCP development network",
+        "env": "dev",
+        "cloud": "gcp"
+      },
+      "routable": false,
+      "vpc_children_type_flag": true,
+      "description": "Network reservation for GCP development services"
+    },
+    {
+      "vrf_id": "prod-vrf",
+      "cidr": "192.168.0.0/16",
+      "parent_prefix_id": null,
+      "tags": {
+        "purpose": "direct_allocation",
+        "description": "RFC1918 Class C private space for edge/IoT"
+      },
+      "routable": false,
+      "description": "Edge and IoT device allocations"
+    },
+    {
+      "vrf_id": "prod-vrf",
+      "cidr": "172.16.0.0/12",
+      "parent_prefix_id": null,
+      "tags": {
+        "purpose": "reserved",
+        "description": "RFC1918 Class B private space - reserved for future use"
+      },
+      "routable": true,
+      "description": "Reserved Class B space for future expansion"
+    }
+  ]
+}

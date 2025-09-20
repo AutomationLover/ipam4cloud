@@ -65,6 +65,5 @@ yarn-error.log*
 # Generated configuration files (created from templates - .gen.json extension)
 app/data/*.gen.json
 
-# Preparation files with AWS-specific values
-preparation/vpc_details.json
-preparation/aws_commands.sh
+# User-generated AWS files (contains real AWS account/VPC data)
+.aws-local/

@@ -716,6 +716,40 @@ async def get_vpc(vpc_id: str, pm: PrefixManager = Depends(get_prefix_manager)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/vpcs/{vpc_id}/associations")
+async def get_vpc_associations(vpc_id: str, pm: PrefixManager = Depends(get_prefix_manager)):
+    """Get all prefix associations for a specific VPC"""
+    try:
+        session = pm.db_manager.get_session()
+        try:
+            from models import VPCPrefixAssociation, Prefix
+            
+            # Get all associations for this VPC with prefix details
+            associations = session.query(VPCPrefixAssociation, Prefix).join(
+                Prefix, VPCPrefixAssociation.parent_prefix_id == Prefix.prefix_id
+            ).filter(
+                VPCPrefixAssociation.vpc_id == vpc_id
+            ).all()
+            
+            result = []
+            for association, prefix in associations:
+                result.append({
+                    "association_id": str(association.association_id),
+                    "vpc_prefix_cidr": str(association.vpc_prefix_cidr),
+                    "routable": association.routable,
+                    "prefix_id": prefix.prefix_id,
+                    "prefix_cidr": str(prefix.cidr),
+                    "prefix_vrf_id": prefix.vrf_id,
+                    "prefix_tags": prefix.tags,
+                    "prefix_source": prefix.source
+                })
+            
+            return result
+        finally:
+            session.close()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/api/vpcs", response_model=VPCResponse)
 async def create_vpc(
     vpc_data: VPCCreate,

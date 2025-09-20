@@ -3,4 +3,5 @@ sqlalchemy==2.0.21
 ipaddress==1.0.23
 uuid==1.30
 python-dotenv==1.0.0
+boto3==1.34.0
 

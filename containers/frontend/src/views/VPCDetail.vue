@@ -366,9 +366,18 @@ export default {
       this.loadingPrefixes = true
       try {
         const vpcId = this.$route.params.vpcId
-        // Get all prefixes and filter by VPC ID
-        const response = await prefixAPI.getPrefixes()
-        this.associatedPrefixes = response.data.filter(prefix => prefix.vpc_id === vpcId)
+        // Get VPC associations (correct way - uses vpc_prefix_association table)
+        const response = await vpcAPI.getVPCAssociations(vpcId)
+        // Transform the association data to match the expected prefix format
+        this.associatedPrefixes = response.data.map(association => ({
+          prefix_id: association.prefix_id,
+          cidr: association.prefix_cidr,
+          vrf_id: association.prefix_vrf_id,
+          source: association.prefix_source,
+          routable: association.routable,
+          tags: association.prefix_tags,
+          vpc_prefix_cidr: association.vpc_prefix_cidr // Additional info about the association
+        }))
       } catch (error) {
         console.error('Failed to load associated prefixes:', error)
         this.associatedPrefixes = []

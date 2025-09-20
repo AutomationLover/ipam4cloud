@@ -1,192 +1,384 @@
-# Prefix Management System - Containerized Demo
+# IPAM4Cloud - Hierarchical IP Address Management System
 
-This directory contains a complete containerized implementation of the hierarchical prefix management system for cloud environments.
+A complete containerized IP Address Management (IPAM) system for cloud environments with web interface, AWS integration, and hierarchical prefix management.
 
-## Architecture
+## 🎯 Features
+
+- **🌐 Web Interface**: Vue.js frontend with tree/list views, filtering, and search
+- **☁️ AWS Integration**: Automatic VPC subnet discovery and synchronization
+- **🏗️ Hierarchical Structure**: Parent-child prefix relationships with inheritance
+- **🔄 Multi-VRF Support**: Virtual Routing and Forwarding isolation
+- **📊 Space Analysis**: Available space tracking and utilization reports
+- **🏷️ Flexible Tagging**: JSONB metadata for prefixes and VPCs
+- **🔒 Data Integrity**: Automatic validation and constraint enforcement
+
+## 🚀 Quick Start
+
+### Step 1: Environment Setup
+
+**Interactive Setup (Recommended)**
+```bash
+./setup_env.sh
+```
+
+**Manual Setup**
+```bash
+# Copy environment template
+cp env.example .env
+
+# Edit with your AWS settings
+nano .env
+```
+
+### Step 2: Generate Configuration
+
+```bash
+# Generate configuration files from environment variables
+./generate_config_advanced.sh
+```
+
+### Step 3: Start the Application
+
+```bash
+# Start with fresh database
+./manage.sh start --clean
+
+# Or start with existing data
+./manage.sh start
+```
+
+### Step 4: Access the Application
+
+- **Admin Interface**: http://localhost:8080
+- **Read-only Interface**: http://localhost:3000
+- **API Documentation**: http://localhost:8000/docs
+
+## 📋 Prerequisites
+
+- Docker and Docker Compose
+- AWS CLI configured (for AWS integration)
+- Valid AWS account with VPC permissions (optional)
+
+## 🔧 Configuration
+
+### Required Environment Variables
+
+```bash
+# AWS Configuration
+AWS_DEFAULT_REGION=us-east-2
+AWS_ACCOUNT_ID=012345678901
+
+# Test VPC Configuration (if using AWS sync)
+TEST_VPC_1_ID=vpc-0123456789abcdef0
+TEST_VPC_1_CIDR=10.101.0.0/16
+TEST_VPC_2_ID=vpc-0123456789abcdef1
+TEST_VPC_2_CIDR=10.102.0.0/16
+
+# Optional: AWS Credentials (can use AWS CLI profiles instead)
+# AWS_ACCESS_KEY_ID=your_access_key
+# AWS_SECRET_ACCESS_KEY=your_secret_key
+```
+
+### AWS VPC Setup (Optional)
+
+If you want to test AWS integration, create test VPCs:
+
+```bash
+# Set your region
+export AWS_DEFAULT_REGION=us-east-2
+
+# Create test VPCs
+aws ec2 create-vpc --cidr-block 10.101.0.0/16 --tag-specifications 'ResourceType=vpc,Tags=[{Key=Name,Value=ipam4cloud-test-vpc-1}]'
+aws ec2 create-vpc --cidr-block 10.102.0.0/16 --tag-specifications 'ResourceType=vpc,Tags=[{Key=Name,Value=ipam4cloud-test-vpc-2}]'
+
+# Update your .env file with the returned VPC IDs
+```
+
+**Reference**: See `scripts/aws/commands.template.sh` for more AWS CLI examples.
+
+## 🏗️ Architecture
+
+### Components
 
 - **PostgreSQL Database**: Stores VRFs, VPCs, prefixes, and associations
-- **Python Application**: SQLAlchemy models and demo implementation
-- **Docker Compose**: Orchestrates the multi-container setup
+- **FastAPI Backend**: REST API with SQLAlchemy models
+- **Vue.js Frontend**: Responsive web interface with admin and read-only views
+- **AWS Sync Service**: Automatic VPC subnet discovery and synchronization
+- **Docker Compose**: Container orchestration
 
-## Quick Start
+### Database Schema
 
-### Using the Management Script (Recommended)
+- **`vrf`**: Virtual Routing and Forwarding instances
+- **`vpc`**: Cloud VPC definitions (AWS, Azure, GCP)
+- **`prefix`**: Hierarchical IP prefix entries with parent-child relationships
+- **`vpc_prefix_association`**: Engineer-managed VPC-to-prefix mappings
 
-1. **Start with fresh database:**
-   ```bash
-   cd containers/
-   ./manage.sh start --clean
-   ```
+### Key Features
 
-2. **Or start with existing data:**
-   ```bash
-   ./manage.sh start
-   ```
+- **Hierarchical Structure**: Parent-child relationships with automatic indentation
+- **Data Integrity**: Database triggers ensure parent contains child, routable inheritance
+- **Auto VRF Creation**: Non-routable VPC prefixes get dedicated VRFs
+- **Flexible Tagging**: JSONB tags for metadata
+- **AWS Integration**: Automatic subnet discovery with `upsert_vpc_subnet()` function
 
-3. **Other useful commands:**
-   ```bash
-   ./manage.sh status          # Check container status
-   ./manage.sh logs backend    # View backend logs
-   ./manage.sh restart --clean # Restart with fresh DB
-   ./manage.sh reset           # Complete fresh start
-   ./manage.sh --help          # Show all options
-   ```
+## 🌐 Web Interface
+
+### Prefix Management
+- **Tree View**: Hierarchical display with expand/collapse
+- **List View**: Sortable table with filtering and search
+- **Actions**: Create child prefixes, associate with VPCs
+- **Filtering**: By VRF, source, routable status, cloud provider
+
+### VRF Management
+- **List all VRFs** with descriptions and prefix counts
+- **Navigate to filtered prefix views**
+- **Default VRF identification**
+
+### VPC Management
+- **Multi-cloud support** (AWS, Azure, GCP)
+- **VPC details** with associated prefixes
+- **Provider-specific information**
+
+## ☁️ AWS Integration
+
+### Automatic Sync Service
+
+The AWS sync service automatically discovers and synchronizes VPC subnets:
+
+```bash
+# Monitor sync logs
+docker compose -f containers/docker-compose.yml logs -f aws-sync
+
+# Manual sync test
+./scripts/utils/test_aws_sync.sh
+```
+
+### Sync Configuration
+
+```bash
+# Sync settings in .env
+SYNC_MODE=continuous          # or 'once' for single run
+SYNC_INTERVAL=300            # seconds between syncs
+AWS_PAGE_SIZE=100            # AWS API pagination size
+MAX_SUBNETS_PER_VPC=1000     # safety limit
+```
+
+### What Gets Synced
+
+- **VPC Subnets**: Automatically discovered and added as child prefixes
+- **Routable Status**: Inherited from parent VPC prefix
+- **Tags**: AWS subnet tags are preserved
+- **Hierarchy**: Subnets are properly nested under VPC prefixes
+
+## 🛠️ Management Commands
+
+### Using the Management Script
+
+```bash
+# Start services
+./manage.sh start              # Start with existing data
+./manage.sh start --clean      # Start with fresh database
+
+# Service management
+./manage.sh status             # Check container status
+./manage.sh restart            # Restart all services
+./manage.sh restart --clean    # Restart with fresh database
+./manage.sh stop               # Stop all services
+
+# Logs and monitoring
+./manage.sh logs backend       # View backend logs
+./manage.sh logs aws-sync      # View AWS sync logs
+./manage.sh logs --follow      # Follow all logs
+
+# Database operations
+./manage.sh reset              # Complete fresh start
+./manage.sh db-shell           # Connect to database
+
+# Help
+./manage.sh --help             # Show all options
+```
 
 ### Using Docker Compose Directly
 
-1. **Start the system:**
-   ```bash
-   docker-compose up --build
-   ```
+```bash
+# Start all services
+docker compose -f containers/docker-compose.yml up -d
 
-2. **For fresh database:**
-   ```bash
-   docker-compose down -v  # Clean database
-   docker-compose up --build
-   ```
+# View logs
+docker compose -f containers/docker-compose.yml logs -f
 
-### What Happens on Startup
+# Stop services
+docker compose -f containers/docker-compose.yml down
 
-The demo will automatically:
-   - Run the complete user story scenarios
-   - Display tree views and query results
-   - Show space analysis
+# Fresh start (removes database)
+docker compose -f containers/docker-compose.yml down -v
+docker compose -f containers/docker-compose.yml up --build
+```
 
-3. **View logs:**
-   ```bash
-   docker-compose logs -f app
-   ```
+## 🔧 Utility Scripts
 
-4. **Stop the system:**
-   ```bash
-   docker-compose down
-   ```
+Additional utility scripts are available in the `scripts/utils/` directory:
 
-## Demo Scenarios
+```bash
+# Test AWS sync functionality
+./scripts/utils/test_aws_sync.sh
+
+# Monitor sync service with dashboard
+./scripts/utils/monitor_sync.sh
+```
+
+## 📊 Demo Scenarios
+
+The system includes comprehensive demo scenarios:
 
 ### 1. Manual Prefix Planning
 - Engineer creates root prefix `10.0.0.0/8` in `prod-vrf`
 - Creates production environment reservation `10.0.0.0/12`
 - Creates AWS VPCs for production and development
-- Reserves `10.0.0.0/16` as routable for prod VPC
-- Reserves `10.1.0.0/16` as non-routable for dev VPC
 - Associates VPCs with their respective prefixes
 
-### 2. Auto Script Ingestion
-- Simulates hourly cron job discovering VPC subnets
-- Ingests routable subnets (`10.0.1.0/24`, `10.0.2.0/24`, `10.0.10.0/24`)
-- Ingests non-routable subnets (`10.1.1.0/24`, `10.1.2.0/24`)
+### 2. AWS Subnet Discovery
+- Automatic hourly sync discovers VPC subnets
+- Ingests routable and non-routable subnets
 - Demonstrates proper VRF inheritance and routable flag propagation
 
-### 3. Client Query Operations
+### 3. Web Interface Operations
 - Tree view with hierarchical display
 - Query specific prefixes by CIDR
-- List children of parent prefixes
 - Filter by routable flag, source, and cloud provider
 - Space analysis within parent prefixes
 
-## Database Schema Features
+## 🔍 Troubleshooting
 
-### Tables
-- `vrf`: Virtual Routing and Forwarding instances
-- `vpc`: Cloud VPC definitions
-- `prefix`: Hierarchical IP prefix entries
-- `vpc_prefix_association`: Engineer-managed VPC-to-prefix mappings
+### Common Issues
 
-### Key Features
-- **Hierarchical Structure**: Parent-child relationships with automatic indentation
-- **Data Integrity**: Triggers ensure parent contains child, routable inheritance
-- **Auto VRF Creation**: Non-routable VPC prefixes get dedicated VRFs
-- **Flexible Tagging**: JSONB tags for metadata
-- **Ingestion Function**: `upsert_vpc_subnet()` for idempotent subnet discovery
-
-### Constraints
-- Parent prefixes must contain child prefixes
-- Non-routable parents cannot have routable children
-- Unique CIDR per VRF
-- VPC-sourced prefixes must reference a VPC
-
-## File Structure
-
-```
-containers/
-├── docker-compose.yml          # Container orchestration
-├── Dockerfile                  # Python app container
-├── requirements.txt            # Python dependencies
-├── init/
-│   ├── 01_schema.sql          # Database schema and functions
-│   └── 02_seed_data.sql       # Initial data (default VRF)
-└── app/
-    ├── models.py              # SQLAlchemy models and managers
-    ├── main.py                # Demo implementation
-    └── README.md              # This file
-```
-
-## Example Output
-
-```
-🚀 Starting Prefix Management System Demo
-============================================================
-✓ Database connection established
-
-============================================================
-DEMO: Manual Prefix Planning
-============================================================
-
-1. Creating root prefix 10.0.0.0/8 for prod-vrf...
-   ✓ Created: manual-prod-vrf-10-0-0-0-8
-
-2. Creating 10.0.0.0/12 reservation for prod environment...
-   ✓ Created: manual-prod-vrf-10-0-0-0-12
-
-[... continues with full demo ...]
-
-🌳 Final Prefix Tree:
-
-=== Prefix Tree for VRF: prod-vrf ===
-
-VRF: prod-vrf
---------------------------------------------------
-[M] 10.0.0.0/8 (✓) - manual-prod-vrf-10-0-0-0-8
-    Tags: env:prod, managed_by:engineer
-  [M] 10.0.0.0/12 (✓) - manual-prod-vrf-10-0-0-0-12
-      Tags: env:prod, purpose:prod_reservation
-    [M] 10.0.0.0/16 (✓) - manual-prod-vrf-10-0-0-0-16
-        Tags: vpc_id:..., purpose:vpc_reservation
-      [V] 10.0.1.0/24 (✓) - ...-subnet-10-0-1-0-24
-          Tags: Name:prod-app-subnet-1a, AZ:us-east-1a
-    [M] 10.1.0.0/16 (✗) - manual-prod-vrf-10-1-0-0-16
-        Tags: vpc_id:..., purpose:vpc_reservation
-```
-
-## Development
-
-### Connect to Database
+**Database Connection Issues**
 ```bash
-docker-compose exec postgres psql -U prefix_user -d prefix_management
+# Check container status
+docker compose -f containers/docker-compose.yml ps
+
+# View database logs
+docker compose -f containers/docker-compose.yml logs postgres
+
+# Connect to database manually
+docker compose -f containers/docker-compose.yml exec postgres psql -U prefix_user -d prefix_management
 ```
 
-### Run Custom Queries
-```sql
--- View all prefixes in tree order
-SELECT * FROM prefix_tree WHERE vrf_id = 'prod-vrf';
+**AWS Sync Issues**
+```bash
+# Check AWS credentials
+aws sts get-caller-identity
 
--- Check VRF assignments
-SELECT vrf_id, COUNT(*) as prefix_count FROM prefix GROUP BY vrf_id;
+# View sync logs
+docker compose -f containers/docker-compose.yml logs aws-sync
+
+# Test sync manually
+./scripts/utils/test_aws_sync.sh
 ```
 
-### Modify Demo
-Edit `app/main.py` to add custom scenarios or modify the existing user stories.
+**Configuration Issues**
+```bash
+# Regenerate configuration files
+./generate_config_advanced.sh
 
-## Troubleshooting
+# Validate generated JSON
+python3 -m json.tool app/data/vpc_data.gen.json
+```
 
-### Database Connection Issues
-- Ensure PostgreSQL container is healthy: `docker-compose ps`
-- Check logs: `docker-compose logs postgres`
+**Port Conflicts**
+```bash
+# Clean up Docker resources
+docker compose -f containers/docker-compose.yml down -v
+docker system prune -f
+```
 
-### Schema Issues
-- Recreate containers: `docker-compose down -v && docker-compose up --build`
+### Fresh Start
 
-### Application Errors
-- Check app logs: `docker-compose logs app`
-- Verify database schema: Connect to PostgreSQL and check tables
+If you encounter persistent issues:
+
+```bash
+# Complete reset
+./manage.sh reset
+
+# Or manually
+docker compose -f containers/docker-compose.yml down -v
+docker system prune -f
+./generate_config_advanced.sh
+docker compose -f containers/docker-compose.yml up --build
+```
+
+## 🔒 Security
+
+- **Environment Variables**: All AWS-specific values are externalized
+- **Git Ignored**: Generated configuration files are not tracked
+- **IAM Permissions**: Use minimal required AWS permissions
+- **Network Isolation**: Services communicate through Docker networks
+
+## 📁 File Structure
+
+```
+ipam4cloud/
+├── README.md                    # This file
+├── manage.sh                    # Management script
+├── setup_env.sh                 # Interactive environment setup
+├── generate_config_advanced.sh  # Configuration generator
+├── requirements.txt             # Python dependencies
+├── .env                         # Your environment configuration (git-ignored)
+├── env.example                  # Environment template
+├── scripts/                     # Utility and reference scripts
+│   ├── utils/                   # Testing and monitoring utilities
+│   │   ├── test_aws_sync.sh     # AWS sync testing
+│   │   └── monitor_sync.sh      # Sync monitoring dashboard
+│   └── aws/                     # AWS reference templates
+│       ├── commands.template.sh # AWS CLI command examples
+│       └── vpc_details.template.json # VPC details template
+├── docs/                        # Documentation
+│   ├── ENV_SETUP.md             # Detailed environment setup
+│   ├── WEB_APP_README.md        # Web interface guide
+│   ├── AWS_SYNC_README.md       # AWS sync documentation
+│   └── DEMO_RESULTS.md          # Demo output examples
+├── containers/                  # Container orchestration
+│   ├── docker-compose.yml       # Container orchestration
+│   ├── app/                     # Python application
+│   │   ├── main.py              # Demo implementation
+│   │   ├── models.py            # SQLAlchemy models
+│   │   ├── aws_vpc_sync.py      # AWS synchronization service
+│   │   └── data/                # Configuration data
+│   │       ├── *.template.json  # Configuration templates
+│   │       └── *.gen.json       # Generated files (git-ignored)
+│   ├── backend/                 # FastAPI backend
+│   │   └── main.py              # REST API server
+│   ├── frontend/                # Vue.js admin interface
+│   ├── frontend-readonly/       # Vue.js read-only interface
+│   └── init/                    # Database initialization
+│       ├── 01_schema.sql        # Database schema
+│       └── 02_seed_data.sql     # Initial data
+└── .aws-local/                  # User AWS files (git-ignored)
+    ├── vpc_details.json         # Your VPC details
+    └── commands.sh              # Your AWS CLI commands
+```
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Test thoroughly
+5. Submit a pull request
+
+## 📄 License
+
+See [LICENSE](LICENSE) file for details.
+
+---
+
+## 📚 Additional Documentation
+
+For more detailed information, see the `docs/` directory:
+
+- **[Environment Setup Guide](docs/ENV_SETUP.md)** - Detailed environment configuration
+- **[Web Interface Guide](docs/WEB_APP_README.md)** - Complete web interface documentation
+- **[AWS Sync Guide](docs/AWS_SYNC_README.md)** - AWS integration and sync service details
+- **[Demo Results](docs/DEMO_RESULTS.md)** - Example output and demo scenarios
+
+**Need help?** Check the troubleshooting section above or open an issue on GitHub.

@@ -16,7 +16,7 @@ class JSONDataLoader:
         """Initialize loader with data directory path"""
         self.data_dir = Path(data_dir)
         
-    def load_manual_prefixes(self, filename: str = "manual_prefixes.json") -> List[Dict[str, Any]]:
+    def load_manual_prefixes(self, filename: str = "manual_prefixes.gen.json") -> List[Dict[str, Any]]:
         """Load manual prefix configuration from JSON file"""
         filepath = self.data_dir / filename
         if not filepath.exists():
@@ -31,7 +31,7 @@ class JSONDataLoader:
         
         return data['prefixes']
     
-    def load_vpc_data(self, filename: str = "vpc_data.json") -> Dict[str, Any]:
+    def load_vpc_data(self, filename: str = "vpc_data.gen.json") -> Dict[str, Any]:
         """Load VPC configuration from JSON file"""
         filepath = self.data_dir / filename
         if not filepath.exists():
@@ -48,7 +48,7 @@ class JSONDataLoader:
         
         return data
     
-    def load_public_ip_data(self, filename: str = "public_ips.json") -> List[Dict[str, Any]]:
+    def load_public_ip_data(self, filename: str = "public_ips.gen.json") -> List[Dict[str, Any]]:
         """Load standalone public IP configuration from JSON file"""
         filepath = self.data_dir / filename
         if not filepath.exists():

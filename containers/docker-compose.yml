@@ -19,7 +19,7 @@ services:
       start_period: 30s
 
   app:
-    build: .
+    image: python:3.11-slim
     container_name: prefix_app
     depends_on:
       postgres:
@@ -28,8 +28,9 @@ services:
       DATABASE_URL: postgresql://prefix_user:prefix_pass@postgres:5432/prefix_management
     volumes:
       - ./app:/app
+      - ../requirements.txt:/requirements.txt
     working_dir: /app
-    command: python main.py
+    command: sh -c "pip install -r /requirements.txt && python main.py"
 
   backend:
     build: ./backend
@@ -71,6 +72,47 @@ services:
       - /app/node_modules
     environment:
       - VUE_APP_API_URL=http://localhost:8000
+
+  aws-sync:
+    image: python:3.11-slim
+    container_name: prefix_aws_sync
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://prefix_user:prefix_pass@postgres:5432/prefix_management}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-2}
+      AWS_ACCOUNT_ID: ${AWS_ACCOUNT_ID}
+      SYNC_MODE: ${SYNC_MODE:-continuous}
+      SYNC_INTERVAL: ${SYNC_INTERVAL:-300}
+      AWS_PAGE_SIZE: ${AWS_PAGE_SIZE:-100}
+      MAX_SUBNETS_PER_VPC: ${MAX_SUBNETS_PER_VPC:-1000}
+      DB_BATCH_SIZE: ${DB_BATCH_SIZE:-50}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_DIR: ${LOG_DIR:-logs}
+      DEFAULT_VRF_ID: ${DEFAULT_VRF_ID:-prod-vrf}
+      # AWS credentials can be passed via:
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      # Or use AWS_PROFILE: ${AWS_PROFILE}
+    volumes:
+      - ./app:/app
+      - ../requirements.txt:/requirements.txt
+      - ~/.aws:/root/.aws:ro  # Mount AWS credentials (read-only)
+    working_dir: /app
+    command: sh -c "apt-get update && apt-get install -y gcc && pip install -r /requirements.txt && python aws_vpc_sync.py"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os; exit(0 if os.path.exists('logs/aws_sync.log') else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   postgres_data:

@@ -1,0 +1,17 @@
+{
+  "public_ips": [
+    {
+      "ip": "203.0.113.1",
+      "cidr": "203.0.113.1/32",
+      "vpc_provider_vpc_id": "vpc-0abc1234",
+      "provider": "aws",
+      "provider_account_id": "123456789012",
+      "region": "us-east-1",
+      "tags": {
+        "Name": "prod-nat-gateway-1",
+        "env": "prod"
+      },
+      "description": "Production NAT Gateway IP"
+    }
+  ]
+}

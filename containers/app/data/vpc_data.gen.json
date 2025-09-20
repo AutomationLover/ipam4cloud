@@ -1,0 +1,156 @@
+{
+  "description": "VPC configurations and associations for cloud infrastructure",
+  "vpcs": [
+    {
+      "description": "Production Application VPC",
+      "provider": "aws",
+      "provider_account_id": "123456789012",
+      "provider_vpc_id": "vpc-0abc1234",
+      "region": "us-east-1",
+      "tags": {
+        "owner": "netops",
+        "env": "prod"
+      }
+    },
+    {
+      "description": "Development/Test VPC",
+      "provider": "aws", 
+      "provider_account_id": "123456789012",
+      "provider_vpc_id": "vpc-0def5678",
+      "region": "us-east-1",
+      "tags": {
+        "owner": "devops",
+        "env": "dev"
+      }
+    },
+    {
+      "description": "ipam4cloud-test-vpc-1 - Routable",
+      "provider": "aws",
+      "provider_account_id": "267406360448",
+      "provider_vpc_id": "vpc-0bfab826e7f965381",
+      "region": "us-east-2",
+      "tags": {
+        "owner": "netops",
+        "env": "test",
+        "Name": "ipam4cloud-test-vpc-1",
+        "Purpose": "ipam4cloud-testing"
+      }
+    },
+    {
+      "description": "ipam4cloud-test-vpc-2 - Non-routable",
+      "provider": "aws",
+      "provider_account_id": "267406360448",
+      "provider_vpc_id": "vpc-017ac1c51153a77ea",
+      "region": "us-east-2",
+      "tags": {
+        "owner": "netops",
+        "env": "test",
+        "Name": "ipam4cloud-test-vpc-2",
+        "Purpose": "ipam4cloud-testing"
+      }
+    },
+    {
+      "description": "Azure Production VNet",
+      "provider": "azure",
+      "provider_account_id": "subscription-123",
+      "provider_vpc_id": "vnet-prod-001",
+      "region": "East US",
+      "tags": {
+        "owner": "cloudops",
+        "env": "prod"
+      }
+    },
+    {
+      "description": "GCP Development Network",
+      "provider": "gcp",
+      "provider_account_id": "project-456",
+      "provider_vpc_id": "dev-network",
+      "region": "us-central1",
+      "tags": {
+        "owner": "devops",
+        "env": "dev"
+      }
+    }
+  ],
+  "vpc_associations": [
+    {
+      "vpc_provider_vpc_id": "vpc-0abc1234",
+      "vpc_prefix_cidr": "10.1.0.0/16",
+      "routable": true,
+      "parent_prefix_id": "manual-prod-vrf-10-1-0-0-16",
+      "description": "Production application prefix association"
+    },
+    {
+      "vpc_provider_vpc_id": "vpc-0def5678",
+      "vpc_prefix_cidr": "10.2.0.0/16",
+      "routable": false,
+      "parent_prefix_id": "manual-prod-vrf-10-2-0-0-16",
+      "description": "Development non-routable prefix association"
+    },
+    {
+      "vpc_provider_vpc_id": "vpc-0bfab826e7f965381",
+      "vpc_prefix_cidr": "10.101.0.0/16",
+      "routable": true,
+      "parent_prefix_id": "manual-prod-vrf-10-101-0-0-16",
+      "description": "Associate ipam4cloud-test-vpc-1 with routable prefix"
+    },
+    {
+      "vpc_provider_vpc_id": "vpc-017ac1c51153a77ea",
+      "vpc_prefix_cidr": "10.102.0.0/16",
+      "routable": false,
+      "parent_prefix_id": "manual-prod-vrf-10-102-0-0-16",
+      "description": "Associate ipam4cloud-test-vpc-2 with non-routable prefix"
+    },
+    {
+      "vpc_provider_vpc_id": "vnet-prod-001",
+      "vpc_prefix_cidr": "10.3.0.0/16",
+      "routable": true,
+      "parent_prefix_id": "manual-prod-vrf-10-3-0-0-16",
+      "description": "Azure production VNet association"
+    },
+    {
+      "vpc_provider_vpc_id": "dev-network",
+      "vpc_prefix_cidr": "10.4.0.0/16",
+      "routable": false,
+      "parent_prefix_id": "manual-prod-vrf-10-4-0-0-16",
+      "description": "GCP development network association"
+    }
+  ],
+  "vpc_subnets": [
+    {
+      "vpc_provider_vpc_id": "vpc-0abc1234",
+      "subnet_cidr": "10.1.1.0/24",
+      "availability_zone": "us-east-1a",
+      "tags": {
+        "Name": "prod-subnet-1a",
+        "env": "prod"
+      },
+      "description": "Production subnet 1a"
+    },
+    {
+      "vpc_provider_vpc_id": "vpc-0def5678", 
+      "subnet_cidr": "10.2.1.0/24",
+      "availability_zone": "us-east-1a",
+      "tags": {
+        "Name": "dev-subnet-1a",
+        "env": "dev"
+      },
+      "description": "Development subnet 1a"
+    }
+  ],
+  "public_ips": [
+    {
+      "ip": "203.0.113.1",
+      "cidr": "203.0.113.1/32",
+      "vpc_provider_vpc_id": "vpc-0abc1234",
+      "provider": "aws",
+      "provider_account_id": "123456789012",
+      "region": "us-east-1",
+      "tags": {
+        "Name": "prod-nat-gateway-1",
+        "env": "prod"
+      },
+      "description": "Production NAT Gateway IP"
+    }
+  ]
+}

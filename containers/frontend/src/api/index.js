@@ -91,6 +91,9 @@ export const vpcAPI = {
   // Get specific VPC by ID
   getVPC: (vpcId) => api.get(`/api/vpcs/${vpcId}`),
   
+  // Get VPC associations (prefix associations for this VPC)
+  getVPCAssociations: (vpcId) => api.get(`/api/vpcs/${vpcId}/associations`),
+  
   // Create new VPC
   createVPC: (data) => api.post('/api/vpcs', data),
   
