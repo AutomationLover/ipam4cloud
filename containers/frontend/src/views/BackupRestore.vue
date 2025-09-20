@@ -47,7 +47,7 @@
             </div>
             <div class="stat-item">
               <span class="stat-label">Total Size:</span>
-              <span class="stat-value">{{ totalSize }} MB</span>
+              <span class="stat-value">{{ totalSize }}</span>
             </div>
             <div class="stat-item">
               <span class="stat-label">Latest Backup:</span>
@@ -273,7 +273,7 @@ export default {
   computed: {
     totalSize() {
       const total = this.backups.reduce((sum, backup) => sum + (backup.size || 0), 0)
-      return this.formatSize(total, false)
+      return this.formatSize(total, true)
     },
     latestBackup() {
       if (this.backups.length === 0) return 'None'
