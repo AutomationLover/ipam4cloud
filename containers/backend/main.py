@@ -279,6 +279,7 @@ async def get_prefixes(
     provider: Optional[str] = Query(None),
     provider_account_id: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
+    include_deleted: bool = Query(False, description="Include prefixes marked as deleted from AWS"),
     pm: PrefixManager = Depends(get_prefix_manager)
 ):
     """Get all prefixes with optional filtering"""
@@ -294,6 +295,10 @@ async def get_prefixes(
         # Apply advanced search filter if provided
         if search:
             prefixes = apply_advanced_search(prefixes, search)
+        
+        # Filter out deleted prefixes unless explicitly requested
+        if not include_deleted:
+            prefixes = [p for p in prefixes if not p.tags.get('deleted_from_aws')]
         
         return [PrefixResponse(
             prefix_id=p.prefix_id,
@@ -315,11 +320,17 @@ async def get_prefixes(
 @app.get("/api/prefixes/tree", response_model=List[TreeNode])
 async def get_prefixes_tree(
     vrf_id: Optional[str] = Query(None),
+    include_deleted: bool = Query(False, description="Include prefixes marked as deleted from AWS"),
     pm: PrefixManager = Depends(get_prefix_manager)
 ):
     """Get prefixes in tree structure"""
     try:
         prefixes = pm.get_prefix_tree(vrf_id)
+        
+        # Filter out deleted prefixes unless explicitly requested
+        if not include_deleted:
+            prefixes = [p for p in prefixes if not p.tags.get('deleted_from_aws')]
+        
         return build_tree(prefixes)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

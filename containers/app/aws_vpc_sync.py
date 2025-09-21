@@ -118,9 +118,27 @@ class AWSVPCSubnetSync:
         finally:
             session.close()
     
-    def fetch_vpc_subnets(self, vpc_id: str) -> List[Dict[str, Any]]:
-        """Fetch all subnets for a specific VPC from AWS with pagination support"""
+    def fetch_vpc_subnets(self, vpc_id: str) -> tuple[List[Dict[str, Any]], bool]:
+        """Fetch all subnets for a specific VPC from AWS with pagination support
+        
+        Returns:
+            tuple: (subnets_list, is_reachable)
+                - subnets_list: List of subnet dictionaries
+                - is_reachable: True if VPC was accessible, False if unreachable
+        """
         try:
+            # First, verify the VPC exists by describing it
+            try:
+                self.ec2_client.describe_vpcs(VpcIds=[vpc_id])
+            except Exception as vpc_error:
+                # VPC doesn't exist or is not accessible
+                if 'InvalidVpcID.NotFound' in str(vpc_error) or 'InvalidVpc.NotFound' in str(vpc_error):
+                    logger.warning(f"VPC {vpc_id} does not exist or is not accessible: {vpc_error}")
+                else:
+                    logger.warning(f"VPC {vpc_id} is unreachable: {vpc_error}")
+                logger.info(f"Skipping sync for unreachable VPC {vpc_id} - keeping existing subnet data unchanged")
+                return [], False
+            
             subnets = []
             paginator = self.ec2_client.get_paginator('describe_subnets')
             
@@ -156,11 +174,12 @@ class AWSVPCSubnetSync:
                     logger.info(f"Processed {len(subnets)} subnets so far for VPC {vpc_id}")
             
             logger.info(f"Fetched {len(subnets)} subnets across {total_pages} pages for VPC {vpc_id}")
-            return subnets
+            return subnets, True  # Successfully reached VPC
             
         except Exception as e:
-            logger.error(f"Failed to fetch subnets for VPC {vpc_id}: {e}")
-            return []
+            logger.warning(f"VPC {vpc_id} is unreachable: {e}")
+            logger.info(f"Skipping sync for unreachable VPC {vpc_id} - keeping existing subnet data unchanged")
+            return [], False  # VPC unreachable
     
     def sync_vpc_subnets(self, vpc: VPC, aws_subnets: List[Dict[str, Any]]):
         """Sync AWS subnets with database for a specific VPC with batching support"""
@@ -205,16 +224,23 @@ class AWSVPCSubnetSync:
                     if (i + 1) % self.config.batch_size == 0:
                         logger.info(f"Processed {i + 1}/{len(deleted_prefixes)} deletions")
             
-            # Batch process subnet updates
+            # Batch process subnet updates and track resurrections
             update_subnets = [s for s in aws_subnets if s['cidr_block'] in update_cidrs]
+            resurrected_count = 0
             if update_subnets:
                 logger.debug(f"Updating {len(update_subnets)} existing subnet prefixes")
                 for i, subnet in enumerate(update_subnets):
-                    self._update_subnet_prefix(vpc, subnet)
+                    was_resurrected = self._update_subnet_prefix(vpc, subnet)
+                    if was_resurrected:
+                        resurrected_count += 1
                     if (i + 1) % (self.config.batch_size * 5) == 0:  # Less frequent logging for updates
                         logger.info(f"Updated {i + 1}/{len(update_subnets)} subnets")
             
-            logger.info(f"VPC {vpc.provider_vpc_id}: +{len(new_cidrs)} -{len(deleted_cidrs)} subnets")
+            # Enhanced reporting with resurrections
+            if resurrected_count > 0:
+                logger.info(f"VPC {vpc.provider_vpc_id}: +{len(new_cidrs)} -{len(deleted_cidrs)} ↻{resurrected_count} subnets")
+            else:
+                logger.info(f"VPC {vpc.provider_vpc_id}: +{len(new_cidrs)} -{len(deleted_cidrs)} subnets")
             
         except Exception as e:
             logger.error(f"Failed to sync subnets for VPC {vpc.provider_vpc_id}: {e}")
@@ -352,8 +378,12 @@ class AWSVPCSubnetSync:
         
         return vrf_name
     
-    def _update_subnet_prefix(self, vpc: VPC, subnet_data: Dict[str, Any]):
-        """Update existing subnet prefix with latest AWS data"""
+    def _update_subnet_prefix(self, vpc: VPC, subnet_data: Dict[str, Any]) -> bool:
+        """Update existing subnet prefix with latest AWS data
+        
+        Returns:
+            bool: True if this was a resurrection (previously deleted), False otherwise
+        """
         session = self.db_manager.get_session()
         try:
             prefix = session.query(Prefix).filter(
@@ -363,6 +393,9 @@ class AWSVPCSubnetSync:
             ).first()
             
             if prefix:
+                # Check if this was a previously deleted subnet (resurrection)
+                was_deleted = prefix.tags.get('deleted_from_aws') is not None
+                
                 # Update tags with latest AWS data
                 updated_tags = prefix.tags.copy()
                 updated_tags.update({
@@ -372,12 +405,28 @@ class AWSVPCSubnetSync:
                     'last_sync': datetime.utcnow().isoformat()
                 })
                 
+                # Remove deletion markers if this subnet was previously deleted
+                if was_deleted:
+                    updated_tags.pop('deleted_from_aws', None)
+                    updated_tags.pop('deletion_reason', None)
+                    updated_tags['resurrected_at'] = datetime.utcnow().isoformat()
+                    logger.info(f"Resurrected previously deleted subnet: {subnet_data['cidr_block']} (new subnet ID: {subnet_data['subnet_id']})")
+                
                 prefix.tags = updated_tags
                 session.commit()
-                logger.debug(f"Updated subnet prefix: {subnet_data['cidr_block']}")
+                
+                if was_deleted:
+                    logger.info(f"Subnet resurrection completed: {subnet_data['cidr_block']}")
+                else:
+                    logger.debug(f"Updated subnet prefix: {subnet_data['cidr_block']}")
+                
+                return was_deleted
+            
+            return False
             
         except Exception as e:
             logger.error(f"Failed to update subnet prefix {subnet_data['cidr_block']}: {e}")
+            return False
         finally:
             session.close()
     
@@ -385,18 +434,25 @@ class AWSVPCSubnetSync:
         """Mark subnet prefix as deleted (soft delete)"""
         session = self.db_manager.get_session()
         try:
+            # Query the prefix again in this session to ensure it's attached
+            db_prefix = session.query(Prefix).filter(Prefix.prefix_id == prefix.prefix_id).first()
+            if not db_prefix:
+                logger.warning(f"Prefix {prefix.cidr} not found in database for deletion marking")
+                return
+                
             # Add deletion marker to tags instead of hard delete
-            updated_tags = prefix.tags.copy()
+            updated_tags = db_prefix.tags.copy()
             updated_tags.update({
                 'deleted_from_aws': datetime.utcnow().isoformat(),
                 'deletion_reason': 'aws_subnet_not_found'
             })
-            prefix.tags = updated_tags
+            db_prefix.tags = updated_tags
             session.commit()
             logger.info(f"Marked subnet prefix as deleted: {prefix.cidr}")
             
         except Exception as e:
             logger.error(f"Failed to mark subnet prefix as deleted {prefix.cidr}: {e}")
+            session.rollback()
         finally:
             session.close()
     
@@ -425,9 +481,14 @@ class AWSVPCSubnetSync:
                     logger.info(f"Syncing VPC: {vpc.provider_vpc_id} ({vpc.description})")
                     
                     # Fetch current subnets from AWS
-                    aws_subnets = self.fetch_vpc_subnets(vpc.provider_vpc_id)
+                    aws_subnets, is_reachable = self.fetch_vpc_subnets(vpc.provider_vpc_id)
                     
-                    # Sync with database
+                    if not is_reachable:
+                        # VPC is unreachable - skip sync to preserve existing data
+                        logger.info(f"VPC {vpc.provider_vpc_id} unreachable - skipped (existing subnets preserved)")
+                        continue
+                    
+                    # Sync with database only if VPC is reachable
                     self.sync_vpc_subnets(vpc, aws_subnets)
                     successful_syncs += 1
                     

@@ -37,8 +37,7 @@ export const prefixAPI = {
   getPrefixes: (params = {}) => api.get('/api/prefixes', { params }),
   
   // Get prefixes in tree structure
-  getPrefixesTree: (vrfId = null) => {
-    const params = vrfId ? { vrf_id: vrfId } : {}
+  getPrefixesTree: (params = {}) => {
     return api.get('/api/prefixes/tree', { params })
   },
   
