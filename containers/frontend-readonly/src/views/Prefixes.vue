@@ -63,7 +63,7 @@
             @change="loadData"
             style="margin-top: 8px;"
           >
-            <span style="color: #f56c6c;">Show Deleted Prefixes</span>
+            <span style="color: #f56c6c;">Show VPC Subnets Deleted from AWS</span>
           </el-checkbox>
         </el-col>
         <el-col :span="18">

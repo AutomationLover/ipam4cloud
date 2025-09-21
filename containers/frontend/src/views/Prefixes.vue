@@ -54,7 +54,19 @@
             <el-option label="Non-routable" :value="false" />
           </el-select>
         </el-col>
+      </el-row>
+      
+      <el-row :gutter="20" style="margin-top: 10px;">
         <el-col :span="6">
+          <el-checkbox 
+            v-model="filters.includeDeleted" 
+            @change="loadData"
+            style="margin-top: 8px;"
+          >
+            <span style="color: #f56c6c;">Show VPC Subnets Deleted from AWS</span>
+          </el-checkbox>
+        </el-col>
+        <el-col :span="18">
           <div class="search-container">
           <el-input
             v-model="filters.search"
@@ -157,12 +169,27 @@
         >
           <el-table-column label="CIDR" width="150">
             <template #default="scope">
-              <router-link 
-                :to="`/prefixes/${scope.row.prefix_id}`"
-                class="cidr-link"
-              >
-                <el-text type="primary">{{ scope.row.cidr }}</el-text>
-              </router-link>
+              <div class="cidr-cell">
+                <router-link 
+                  :to="`/prefixes/${scope.row.prefix_id}`"
+                  class="cidr-link"
+                >
+                  <el-text 
+                    :type="scope.row.tags.deleted_from_aws ? 'danger' : 'primary'"
+                    :class="{ 'deleted-prefix': scope.row.tags.deleted_from_aws }"
+                  >
+                    {{ scope.row.cidr }}
+                  </el-text>
+                </router-link>
+                <el-tag 
+                  v-if="scope.row.tags.deleted_from_aws" 
+                  type="danger" 
+                  size="small" 
+                  style="margin-left: 5px;"
+                >
+                  DELETED
+                </el-tag>
+              </div>
             </template>
           </el-table-column>
           <el-table-column label="VRF" width="280">
@@ -531,7 +558,8 @@ export default {
         vrfIds: [], // Changed to array for multiple selection
         source: '',
         routable: '',
-        search: ''
+        search: '',
+        includeDeleted: false
       },
       // Pagination
       pagination: {
@@ -652,6 +680,7 @@ export default {
             if (this.filters.source) vrfParams.source = this.filters.source
             if (this.filters.routable !== '') vrfParams.routable = this.filters.routable
             if (this.filters.search) vrfParams.search = this.filters.search
+            if (this.filters.includeDeleted) vrfParams.include_deleted = this.filters.includeDeleted
             
             const response = await prefixAPI.getPrefixes(vrfParams)
             allPrefixes.push(...response.data)
@@ -666,6 +695,7 @@ export default {
           if (this.filters.source) params.source = this.filters.source
           if (this.filters.routable !== '') params.routable = this.filters.routable
           if (this.filters.search) params.search = this.filters.search
+          if (this.filters.includeDeleted) params.include_deleted = this.filters.includeDeleted
           
           const response = await prefixAPI.getPrefixes(params)
           allPrefixes = response.data
@@ -692,13 +722,17 @@ export default {
           // For multiple VRFs, combine tree data from all selected VRFs
           const allTreeData = []
           for (const vrfId of this.filters.vrfIds) {
-            const response = await prefixAPI.getPrefixesTree(vrfId)
+            const params = { vrf_id: vrfId }
+            if (this.filters.includeDeleted) params.include_deleted = this.filters.includeDeleted
+            const response = await prefixAPI.getPrefixesTree(params)
             allTreeData.push(...response.data)
           }
           this.treeData = allTreeData
         } else {
           // No VRF filter - load tree for all VRFs (pass null/empty)
-          const response = await prefixAPI.getPrefixesTree('')
+          const params = { vrf_id: '' }
+          if (this.filters.includeDeleted) params.include_deleted = this.filters.includeDeleted
+          const response = await prefixAPI.getPrefixesTree(params)
           this.treeData = response.data
         }
       } catch (error) {
@@ -1435,6 +1469,17 @@ export default {
   justify-content: center;
   margin-top: 20px;
   padding: 20px 0;
+}
+
+/* Deleted prefix styles */
+.cidr-cell {
+  display: flex;
+  align-items: center;
+}
+
+.deleted-prefix {
+  text-decoration: line-through;
+  opacity: 0.7;
 }
 
 .node-vrf .vrf-details {
