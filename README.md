@@ -11,6 +11,7 @@ A complete containerized IP Address Management (IPAM) system for cloud environme
 - **📊 Space Analysis**: Available space tracking and utilization reports
 - **🏷️ Flexible Tagging**: JSONB metadata for prefixes and VPCs
 - **🔒 Data Integrity**: Automatic validation and constraint enforcement
+- **🎯 AWS IPAM-Style Subnet Allocation**: Automatically allocate first available subnets by size with tag matching
 
 ## 🚀 Quick Start
 
@@ -126,6 +127,8 @@ aws ec2 create-vpc --cidr-block 10.102.0.0/16 --tag-specifications 'ResourceType
 ### Prefix Management
 - **Tree View**: Hierarchical display with expand/collapse
 - **List View**: Sortable table with filtering and search
+- **Manual Creation**: Create prefixes with specific CIDR blocks
+- **Auto Allocation**: AWS IPAM-style subnet allocation by size and tags
 - **Actions**: Create child prefixes, associate with VPCs
 - **Filtering**: By VRF, source, routable status, cloud provider
 
@@ -138,6 +141,52 @@ aws ec2 create-vpc --cidr-block 10.102.0.0/16 --tag-specifications 'ResourceType
 - **Multi-cloud support** (AWS, Azure, GCP)
 - **VPC details** with associated prefixes
 - **Provider-specific information**
+
+## 🎯 Automatic Subnet Allocation
+
+### AWS IPAM-Style Pool Allocation
+
+The system now supports automatic subnet allocation similar to AWS IPAM pools, where users can request subnets by size without specifying the exact network address.
+
+#### How It Works
+
+1. **Parent Selection**: Find parent prefixes by VRF and optional tag matching
+2. **Space Calculation**: Calculate all possible subnets of requested size within parent
+3. **Conflict Detection**: Check against existing child prefixes for overlaps
+4. **First Available**: Allocate the numerically first available subnet
+
+#### Web Interface
+
+- **Guided Creation**: Tabbed interface with "Manual CIDR" and "Auto Allocate Subnet" options
+- **Interactive Preview**: Real-time preview showing next available subnet and remaining capacity
+- **Tag Matching**: Strict tag matching to find appropriate parent prefixes
+- **Size Selection**: Dropdown with common subnet sizes (/16, /20, /24, /25, /26, /27, /28, /29, /30)
+
+#### API Usage
+
+```bash
+# Allocate a /24 subnet with tag matching
+curl -X POST "http://localhost:8000/api/prefixes/allocate-subnet" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "vrf_id": "prod-vrf",
+    "subnet_size": 24,
+    "tags": {"purpose": "vpc_reservation", "env": "prod"},
+    "routable": true,
+    "description": "Auto-allocated production subnet"
+  }'
+
+# Preview available subnets in a parent prefix
+curl "http://localhost:8000/api/prefixes/manual-prod-vrf-10-1-0-0-16/available-subnets?subnet_size=24"
+```
+
+#### Features
+
+- **Tag-Based Parent Selection**: Strict matching of parent prefix tags
+- **Automatic Space Management**: Finds first available subnet without overlaps
+- **Routable Inheritance**: Respects parent prefix routable constraints
+- **Allocation Tracking**: Adds metadata tags showing allocation source and timestamp
+- **Real-time Preview**: Shows next available subnet and remaining capacity
 
 ## ☁️ AWS Integration
 
