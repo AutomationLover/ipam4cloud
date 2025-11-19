@@ -64,7 +64,15 @@ export const prefixAPI = {
   canAssociateVPC: (prefixId) => api.get(`/api/prefixes/${prefixId}/can-associate-vpc`),
   
   // Get VPC associations for a prefix
-  getPrefixVPCAssociations: (prefixId) => api.get(`/api/prefixes/${prefixId}/vpc-associations`)
+  getPrefixVPCAssociations: (prefixId) => api.get(`/api/prefixes/${prefixId}/vpc-associations`),
+  
+  // Subnet allocation (AWS IPAM-style)
+  allocateSubnet: (data) => api.post('/api/prefixes/allocate-subnet', data),
+  
+  // Get available subnets in a parent prefix
+  getAvailableSubnets: (prefixId, subnetSize) => api.get(`/api/prefixes/${prefixId}/available-subnets`, {
+    params: { subnet_size: subnetSize }
+  })
 }
 
 export const vrfAPI = {

@@ -7,6 +7,7 @@ import uuid
 import json
 from typing import Optional, List, Dict, Any
 import ipaddress
+from datetime import datetime
 
 Base = declarative_base()
 
@@ -396,6 +397,164 @@ class PrefixManager:
             return association is not None
         finally:
             session.close()
+
+    def find_matching_parent_prefixes(self, vrf_id: str, tags: Dict[str, Any], 
+                                     parent_prefix_id: Optional[str] = None) -> List[Prefix]:
+        """Find parent prefixes that match the given tags (strict match)"""
+        session = self.db_manager.get_session()
+        try:
+            query = session.query(Prefix).filter(
+                Prefix.vrf_id == vrf_id,
+                Prefix.source == 'manual'  # Only manual prefixes can be parents for allocation
+            )
+            
+            # If specific parent is provided, use only that
+            if parent_prefix_id:
+                query = query.filter(Prefix.prefix_id == parent_prefix_id)
+            
+            all_prefixes = query.all()
+            
+            # Filter by strict tag matching
+            matching_prefixes = []
+            for prefix in all_prefixes:
+                if self._tags_match_strictly(prefix.tags, tags):
+                    matching_prefixes.append(prefix)
+            
+            return matching_prefixes
+        finally:
+            session.close()
+    
+    def _tags_match_strictly(self, prefix_tags: Dict[str, Any], required_tags: Dict[str, Any]) -> bool:
+        """Check if prefix tags contain all required tags with exact values"""
+        if not required_tags:  # If no tags required, any prefix matches
+            return True
+        
+        for key, value in required_tags.items():
+            if key not in prefix_tags or prefix_tags[key] != value:
+                return False
+        return True
+    
+    def calculate_available_subnets(self, parent_prefix: Prefix, subnet_size: int) -> List[str]:
+        """Calculate all possible subnets of given size within parent prefix"""
+        try:
+            parent_network = ipaddress.ip_network(str(parent_prefix.cidr), strict=False)
+            
+            # Generate all possible subnets of the requested size
+            possible_subnets = list(parent_network.subnets(new_prefix=subnet_size))
+            
+            # Get existing child prefixes
+            session = self.db_manager.get_session()
+            try:
+                children = session.query(Prefix).filter(
+                    Prefix.parent_prefix_id == parent_prefix.prefix_id
+                ).all()
+                
+                # Convert existing children to networks for overlap checking
+                existing_networks = []
+                for child in children:
+                    try:
+                        existing_networks.append(ipaddress.ip_network(str(child.cidr), strict=False))
+                    except ValueError:
+                        continue  # Skip invalid CIDRs
+                
+                # Find available subnets (no overlap with existing)
+                available_subnets = []
+                for subnet in possible_subnets:
+                    is_available = True
+                    for existing in existing_networks:
+                        if subnet.overlaps(existing):
+                            is_available = False
+                            break
+                    if is_available:
+                        available_subnets.append(str(subnet))
+                
+                return available_subnets
+            finally:
+                session.close()
+                
+        except (ValueError, ipaddress.AddressValueError) as e:
+            raise ValueError(f"Invalid parent CIDR {parent_prefix.cidr}: {e}")
+    
+    def allocate_subnet(self, vrf_id: str, subnet_size: int, tags: Optional[Dict[str, Any]] = None,
+                       routable: bool = True, parent_prefix_id: Optional[str] = None,
+                       description: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Allocate the first available subnet of specified size from matching parent prefixes.
+        
+        Args:
+            vrf_id: VRF ID to search in
+            subnet_size: Subnet mask length (e.g., 24 for /24)
+            tags: Tags to match parent prefixes (strict match)
+            routable: Whether allocated subnet should be routable
+            parent_prefix_id: Optional specific parent prefix ID
+            description: Optional description for the allocated subnet
+            
+        Returns:
+            Dict containing allocation details
+            
+        Raises:
+            ValueError: If no suitable parent found or no available space
+        """
+        tags = tags or {}
+        
+        # Find matching parent prefixes
+        parent_prefixes = self.find_matching_parent_prefixes(vrf_id, tags, parent_prefix_id)
+        
+        if not parent_prefixes:
+            if parent_prefix_id:
+                raise ValueError(f"Parent prefix {parent_prefix_id} not found or doesn't match criteria")
+            else:
+                raise ValueError(f"No parent prefixes found in VRF {vrf_id} matching tags: {tags}")
+        
+        # Try each parent prefix until we find available space
+        for parent in parent_prefixes:
+            try:
+                # Validate routable inheritance
+                if routable and not parent.routable:
+                    continue  # Skip non-routable parents if we need routable subnet
+                
+                available_subnets = self.calculate_available_subnets(parent, subnet_size)
+                
+                if available_subnets:
+                    # Allocate the first available subnet
+                    allocated_cidr = available_subnets[0]
+                    
+                    # Prepare tags for the new subnet
+                    subnet_tags = tags.copy()
+                    if description:
+                        subnet_tags['description'] = description
+                    subnet_tags['allocated_from'] = parent.prefix_id
+                    subnet_tags['allocation_timestamp'] = str(datetime.now())
+                    
+                    # Create the new prefix
+                    allocated_prefix = self.create_manual_prefix(
+                        vrf_id=vrf_id,
+                        cidr=allocated_cidr,
+                        parent_prefix_id=parent.prefix_id,
+                        tags=subnet_tags,
+                        routable=routable,
+                        vpc_children_type_flag=False
+                    )
+                    
+                    return {
+                        'allocated_cidr': allocated_cidr,
+                        'parent_prefix_id': parent.prefix_id,
+                        'prefix_id': allocated_prefix.prefix_id,
+                        'available_count': len(available_subnets) - 1,  # Subtract the one we just allocated
+                        'parent_cidr': str(parent.cidr),
+                        'tags': allocated_prefix.tags,
+                        'routable': allocated_prefix.routable,
+                        'created_at': allocated_prefix.created_at
+                    }
+                    
+            except ValueError as e:
+                # Log error and continue to next parent
+                print(f"Error with parent {parent.prefix_id}: {e}")
+                continue
+        
+        # No available space found in any matching parent
+        parent_cidrs = [str(p.cidr) for p in parent_prefixes]
+        raise ValueError(f"No available /{subnet_size} subnets found in parent prefixes: {parent_cidrs}")
 
     def print_tree_view(self, vrf_id: Optional[str] = None):
         """Print a tree view of prefixes"""

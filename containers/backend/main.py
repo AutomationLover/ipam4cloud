@@ -100,6 +100,24 @@ class VPCAssociation(BaseModel):
     routable: bool
     parent_prefix_id: str
 
+class SubnetAllocationRequest(BaseModel):
+    vrf_id: str
+    subnet_size: int = Field(..., ge=1, le=32, description="Subnet mask length (e.g., 24 for /24)")
+    tags: Optional[Dict[str, Any]] = Field(default={}, description="Tags to match parent prefixes (strict match)")
+    routable: Optional[bool] = Field(default=True, description="Whether the allocated subnet should be routable")
+    parent_prefix_id: Optional[str] = Field(default=None, description="Optional specific parent prefix ID")
+    description: Optional[str] = Field(default=None, description="Description for the allocated subnet")
+
+class SubnetAllocationResponse(BaseModel):
+    allocated_cidr: str
+    parent_prefix_id: str
+    prefix_id: str
+    available_count: int
+    parent_cidr: str
+    tags: Dict[str, Any]
+    routable: bool
+    created_at: datetime
+
 class TreeNode(BaseModel):
     prefix_id: str
     vrf_id: str
@@ -439,6 +457,80 @@ async def delete_prefix(
             return {"message": "Prefix deleted successfully"}
         else:
             raise HTTPException(status_code=500, detail="Failed to delete prefix")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/prefixes/allocate-subnet", response_model=SubnetAllocationResponse)
+async def allocate_subnet(
+    request: SubnetAllocationRequest,
+    pm: PrefixManager = Depends(get_prefix_manager)
+):
+    """
+    Allocate the first available subnet of specified size from matching parent prefixes.
+    
+    This endpoint implements AWS IPAM-style subnet allocation where users specify:
+    - VRF and subnet size (e.g., /24)
+    - Optional tags to match parent prefixes (strict match)
+    - Optional specific parent prefix ID
+    
+    The system will find the first available subnet that doesn't overlap with existing allocations.
+    """
+    try:
+        result = pm.allocate_subnet(
+            vrf_id=request.vrf_id,
+            subnet_size=request.subnet_size,
+            tags=request.tags,
+            routable=request.routable,
+            parent_prefix_id=request.parent_prefix_id,
+            description=request.description
+        )
+        
+        return SubnetAllocationResponse(
+            allocated_cidr=result['allocated_cidr'],
+            parent_prefix_id=result['parent_prefix_id'],
+            prefix_id=result['prefix_id'],
+            available_count=result['available_count'],
+            parent_cidr=result['parent_cidr'],
+            tags=result['tags'],
+            routable=result['routable'],
+            created_at=result['created_at']
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Subnet allocation failed: {str(e)}")
+
+@app.get("/api/prefixes/{prefix_id}/available-subnets")
+async def get_available_subnets(
+    prefix_id: str,
+    subnet_size: int = Query(..., ge=1, le=32, description="Subnet mask length (e.g., 24 for /24)"),
+    pm: PrefixManager = Depends(get_prefix_manager)
+):
+    """
+    Get all available subnets of specified size within a parent prefix.
+    
+    This endpoint helps users preview what subnets are available before allocation.
+    """
+    try:
+        prefix = pm.get_prefix_by_id(prefix_id)
+        if not prefix:
+            raise HTTPException(status_code=404, detail="Prefix not found")
+        
+        if prefix.source != 'manual':
+            raise HTTPException(status_code=400, detail="Can only allocate subnets from manual prefixes")
+        
+        available_subnets = pm.calculate_available_subnets(prefix, subnet_size)
+        
+        return {
+            "parent_prefix_id": prefix_id,
+            "parent_cidr": str(prefix.cidr),
+            "subnet_size": subnet_size,
+            "available_subnets": available_subnets,
+            "available_count": len(available_subnets),
+            "total_possible": 2 ** (subnet_size - int(str(prefix.cidr).split('/')[1]))
+        }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

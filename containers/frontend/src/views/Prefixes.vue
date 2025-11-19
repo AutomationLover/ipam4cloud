@@ -357,59 +357,187 @@
     </el-card>
     
     <!-- Create Prefix Dialog -->
-    <el-dialog v-model="showCreateDialog" title="Create New Prefix" width="600px">
-      <el-form :model="newPrefix" :rules="prefixRules" ref="prefixForm" label-width="120px">
-        <el-form-item label="VRF" prop="vrf_id">
-          <el-select v-model="newPrefix.vrf_id" placeholder="Select VRF">
-            <el-option
-              v-for="vrf in vrfs"
-              :key="vrf.vrf_id"
-              :label="vrf.vrf_id"
-              :value="vrf.vrf_id"
+    <el-dialog v-model="showCreateDialog" title="Create New Prefix" width="700px">
+      <el-tabs v-model="createMode" @tab-change="onCreateModeChange">
+        <!-- Manual Prefix Creation Tab -->
+        <el-tab-pane label="Manual CIDR" name="manual">
+          <el-form :model="newPrefix" :rules="prefixRules" ref="prefixForm" label-width="120px">
+            <el-form-item label="VRF" prop="vrf_id">
+              <el-select v-model="newPrefix.vrf_id" placeholder="Select VRF">
+                <el-option
+                  v-for="vrf in vrfs"
+                  :key="vrf.vrf_id"
+                  :label="vrf.vrf_id"
+                  :value="vrf.vrf_id"
+                />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="CIDR" prop="cidr">
+              <el-input v-model="newPrefix.cidr" placeholder="e.g., 10.0.0.0/24" />
+            </el-form-item>
+            <el-form-item label="Parent Prefix">
+              <el-select 
+                v-model="newPrefix.parent_prefix_id" 
+                placeholder="Select parent prefix (leave empty for root prefix)"
+                clearable
+                filterable
+                :loading="loadingParentPrefixes"
+              >
+                <el-option
+                  v-for="prefix in filteredParentPrefixes"
+                  :key="prefix.prefix_id"
+                  :label="`${prefix.cidr} (${prefix.vrf_id})`"
+                  :value="prefix.prefix_id"
+                >
+                  <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span>{{ prefix.cidr }}</span>
+                    <span style="color: #8492a6; font-size: 12px;">{{ prefix.vrf_id }}</span>
+                  </div>
+                </el-option>
+              </el-select>
+            </el-form-item>
+            <el-form-item label="Routable">
+              <el-switch v-model="newPrefix.routable" />
+            </el-form-item>
+            <el-form-item label="VPC Children">
+              <el-switch v-model="newPrefix.vpc_children_type_flag" />
+            </el-form-item>
+            <el-form-item label="Tags">
+              <el-input
+                v-model="tagsInput"
+                type="textarea"
+                placeholder="JSON format: {&quot;env&quot;: &quot;prod&quot;, &quot;team&quot;: &quot;ops&quot;}"
+              />
+            </el-form-item>
+          </el-form>
+        </el-tab-pane>
+
+        <!-- Automatic Subnet Allocation Tab -->
+        <el-tab-pane label="Auto Allocate Subnet" name="allocate">
+          <div class="allocation-header">
+            <el-alert
+              title="AWS IPAM-Style Subnet Allocation"
+              type="info"
+              description="Automatically find and allocate the first available subnet of specified size from matching parent prefixes."
+              show-icon
+              :closable="false"
+              style="margin-bottom: 20px;"
             />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="CIDR" prop="cidr">
-          <el-input v-model="newPrefix.cidr" placeholder="e.g., 10.0.0.0/24" />
-        </el-form-item>
-        <el-form-item label="Parent Prefix">
-          <el-select 
-            v-model="newPrefix.parent_prefix_id" 
-            placeholder="Select parent prefix (leave empty for root prefix)"
-            clearable
-            filterable
-            :loading="loadingParentPrefixes"
-          >
-            <el-option
-              v-for="prefix in filteredParentPrefixes"
-              :key="prefix.prefix_id"
-              :label="`${prefix.cidr} (${prefix.vrf_id})`"
-              :value="prefix.prefix_id"
-            >
-              <div style="display: flex; justify-content: space-between; align-items: center;">
-                <span>{{ prefix.cidr }}</span>
-                <span style="color: #8492a6; font-size: 12px;">{{ prefix.vrf_id }}</span>
+          </div>
+          
+          <el-form :model="subnetAllocation" :rules="allocationRules" ref="allocationForm" label-width="140px">
+            <el-form-item label="VRF" prop="vrf_id">
+              <el-select v-model="subnetAllocation.vrf_id" placeholder="Select VRF" @change="onAllocationVRFChange">
+                <el-option
+                  v-for="vrf in vrfs"
+                  :key="vrf.vrf_id"
+                  :label="vrf.vrf_id"
+                  :value="vrf.vrf_id"
+                />
+              </el-select>
+            </el-form-item>
+            
+            <el-form-item label="Subnet Size" prop="subnet_size">
+              <el-select v-model="subnetAllocation.subnet_size" placeholder="Select subnet size" @change="updateAllocationPreview">
+                <el-option label="/16 (65,536 IPs)" :value="16" />
+                <el-option label="/20 (4,096 IPs)" :value="20" />
+                <el-option label="/24 (256 IPs)" :value="24" />
+                <el-option label="/25 (128 IPs)" :value="25" />
+                <el-option label="/26 (64 IPs)" :value="26" />
+                <el-option label="/27 (32 IPs)" :value="27" />
+                <el-option label="/28 (16 IPs)" :value="28" />
+                <el-option label="/29 (8 IPs)" :value="29" />
+                <el-option label="/30 (4 IPs)" :value="30" />
+              </el-select>
+            </el-form-item>
+            
+            <el-form-item label="Parent Prefix">
+              <el-select 
+                v-model="subnetAllocation.parent_prefix_id" 
+                placeholder="Auto-select by tags, or choose specific parent"
+                clearable
+                filterable
+                @change="updateAllocationPreview"
+              >
+                <el-option
+                  v-for="prefix in allocationParentPrefixes"
+                  :key="prefix.prefix_id"
+                  :label="`${prefix.cidr} (${prefix.vrf_id})`"
+                  :value="prefix.prefix_id"
+                >
+                  <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span>{{ prefix.cidr }}</span>
+                    <span style="color: #8492a6; font-size: 12px;">{{ prefix.vrf_id }}</span>
+                  </div>
+                </el-option>
+              </el-select>
+            </el-form-item>
+            
+            <el-form-item label="Tag Matching">
+              <el-input
+                v-model="allocationTagsInput"
+                type="textarea"
+                placeholder="JSON format: {&quot;purpose&quot;: &quot;vpc_reservation&quot;, &quot;env&quot;: &quot;prod&quot;}"
+                @input="updateAllocationPreview"
+              />
+              <div class="form-help-text">
+                Leave empty to match any parent prefix, or specify tags for strict matching
               </div>
-            </el-option>
-          </el-select>
-        </el-form-item>
-        <el-form-item label="Routable">
-          <el-switch v-model="newPrefix.routable" />
-        </el-form-item>
-        <el-form-item label="VPC Children">
-          <el-switch v-model="newPrefix.vpc_children_type_flag" />
-        </el-form-item>
-        <el-form-item label="Tags">
-          <el-input
-            v-model="tagsInput"
-            type="textarea"
-            placeholder="JSON format: {&quot;env&quot;: &quot;prod&quot;, &quot;team&quot;: &quot;ops&quot;}"
-          />
-        </el-form-item>
-      </el-form>
+            </el-form-item>
+            
+            <el-form-item label="Routable">
+              <el-switch v-model="subnetAllocation.routable" />
+            </el-form-item>
+            
+            <el-form-item label="Description">
+              <el-input v-model="subnetAllocation.description" placeholder="Optional description for the allocated subnet" />
+            </el-form-item>
+            
+            <!-- Allocation Preview -->
+            <el-form-item v-if="allocationPreview" label="Preview">
+              <el-card class="allocation-preview">
+                <div v-if="allocationPreview.error" class="preview-error">
+                  <el-icon><Warning /></el-icon>
+                  {{ allocationPreview.error }}
+                </div>
+                <div v-else class="preview-success">
+                  <div class="preview-item">
+                    <strong>Will allocate:</strong> 
+                    <el-tag type="success">{{ allocationPreview.next_subnet || 'First available' }}</el-tag>
+                  </div>
+                  <div class="preview-item">
+                    <strong>From parent:</strong> 
+                    <el-tag>{{ allocationPreview.parent_cidr }}</el-tag>
+                  </div>
+                  <div class="preview-item">
+                    <strong>Available subnets:</strong> 
+                    <el-tag type="info">{{ allocationPreview.available_count }} remaining</el-tag>
+                  </div>
+                </div>
+              </el-card>
+            </el-form-item>
+          </el-form>
+        </el-tab-pane>
+      </el-tabs>
+      
       <template #footer>
         <el-button @click="showCreateDialog = false">Cancel</el-button>
-        <el-button type="primary" @click="createPrefix" :loading="creating">Create</el-button>
+        <el-button 
+          v-if="createMode === 'manual'" 
+          type="primary" 
+          @click="createPrefix" 
+          :loading="creating"
+        >
+          Create Prefix
+        </el-button>
+        <el-button 
+          v-if="createMode === 'allocate'" 
+          type="primary" 
+          @click="allocateSubnet" 
+          :loading="allocating"
+        >
+          Allocate Subnet
+        </el-button>
       </template>
     </el-dialog>
     
@@ -534,14 +662,14 @@
 </template>
 
 <script>
-import { Plus, Search, List, Share, Check, Close, Link, Edit, Delete, QuestionFilled } from '@element-plus/icons-vue'
+import { Plus, Search, List, Share, Check, Close, Link, Edit, Delete, QuestionFilled, Warning } from '@element-plus/icons-vue'
 import { prefixAPI, vrfAPI, vpcAPI } from '../api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 export default {
   name: 'Prefixes',
   components: {
-    Plus, Search, List, Share, Check, Close, Link, Edit, Delete, QuestionFilled
+    Plus, Search, List, Share, Check, Close, Link, Edit, Delete, QuestionFilled, Warning
   },
   data() {
     return {
@@ -617,7 +745,25 @@ export default {
       loadingParentPrefixes: false,
       suggestionTimeout: null,
       showSearchHelp: false,
-      searchHelpTimeout: null
+      searchHelpTimeout: null,
+      // Subnet allocation properties
+      createMode: 'manual', // 'manual' or 'allocate'
+      allocating: false,
+      subnetAllocation: {
+        vrf_id: '',
+        subnet_size: 24,
+        parent_prefix_id: '',
+        tags: {},
+        routable: true,
+        description: ''
+      },
+      allocationTagsInput: '{}',
+      allocationParentPrefixes: [],
+      allocationPreview: null,
+      allocationRules: {
+        vrf_id: [{ required: true, message: 'Please select a VRF', trigger: 'change' }],
+        subnet_size: [{ required: true, message: 'Please select subnet size', trigger: 'change' }]
+      }
     }
   },
   computed: {
@@ -1284,6 +1430,183 @@ export default {
 
       // Manual VRF - return null to show original ID
       return null
+    },
+
+    // Subnet allocation methods
+    onCreateModeChange(mode) {
+      this.createMode = mode
+      if (mode === 'allocate') {
+        // Reset allocation form
+        this.subnetAllocation = {
+          vrf_id: '',
+          subnet_size: 24,
+          parent_prefix_id: '',
+          tags: {},
+          routable: true,
+          description: ''
+        }
+        this.allocationTagsInput = '{}'
+        this.allocationPreview = null
+        this.loadAllocationParentPrefixes()
+      }
+    },
+
+    async onAllocationVRFChange() {
+      this.subnetAllocation.parent_prefix_id = ''
+      this.allocationPreview = null
+      await this.loadAllocationParentPrefixes()
+      this.updateAllocationPreview()
+    },
+
+    async loadAllocationParentPrefixes() {
+      if (!this.subnetAllocation.vrf_id) {
+        this.allocationParentPrefixes = []
+        return
+      }
+
+      try {
+        const response = await prefixAPI.getPrefixes({
+          vrf_id: this.subnetAllocation.vrf_id,
+          source: 'manual'
+        })
+        this.allocationParentPrefixes = response.data.filter(prefix => 
+          // Only show prefixes that can have children
+          prefix.source === 'manual' && !prefix.vpc_children_type_flag
+        )
+      } catch (error) {
+        console.error('Failed to load parent prefixes for allocation:', error)
+        this.allocationParentPrefixes = []
+      }
+    },
+
+    async updateAllocationPreview() {
+      if (!this.subnetAllocation.vrf_id || !this.subnetAllocation.subnet_size) {
+        this.allocationPreview = null
+        return
+      }
+
+      // Parse tags
+      let tags = {}
+      try {
+        if (this.allocationTagsInput.trim()) {
+          tags = JSON.parse(this.allocationTagsInput)
+        }
+      } catch (e) {
+        this.allocationPreview = {
+          error: 'Invalid JSON format for tags'
+        }
+        return
+      }
+
+      // If specific parent is selected, preview that parent
+      if (this.subnetAllocation.parent_prefix_id) {
+        try {
+          const response = await prefixAPI.getAvailableSubnets(
+            this.subnetAllocation.parent_prefix_id,
+            this.subnetAllocation.subnet_size
+          )
+          
+          this.allocationPreview = {
+            parent_cidr: response.data.parent_cidr,
+            available_count: response.data.available_count,
+            next_subnet: response.data.available_subnets[0] || null
+          }
+        } catch (error) {
+          this.allocationPreview = {
+            error: error.response?.data?.detail || 'Failed to get preview'
+          }
+        }
+      } else {
+        // Preview based on tag matching
+        const matchingParents = this.allocationParentPrefixes.filter(prefix => {
+          return this.tagsMatchStrictly(prefix.tags, tags)
+        })
+
+        if (matchingParents.length === 0) {
+          this.allocationPreview = {
+            error: Object.keys(tags).length > 0 
+              ? `No parent prefixes found matching tags: ${JSON.stringify(tags)}`
+              : 'No parent prefixes available'
+          }
+        } else {
+          // Show preview for first matching parent
+          const firstParent = matchingParents[0]
+          try {
+            const response = await prefixAPI.getAvailableSubnets(
+              firstParent.prefix_id,
+              this.subnetAllocation.subnet_size
+            )
+            
+            this.allocationPreview = {
+              parent_cidr: response.data.parent_cidr,
+              available_count: response.data.available_count,
+              next_subnet: response.data.available_subnets[0] || null
+            }
+          } catch (error) {
+            this.allocationPreview = {
+              error: error.response?.data?.detail || 'Failed to get preview'
+            }
+          }
+        }
+      }
+    },
+
+    tagsMatchStrictly(prefixTags, requiredTags) {
+      if (!requiredTags || Object.keys(requiredTags).length === 0) {
+        return true // No tags required, any prefix matches
+      }
+      
+      for (const [key, value] of Object.entries(requiredTags)) {
+        if (!prefixTags || prefixTags[key] !== value) {
+          return false
+        }
+      }
+      return true
+    },
+
+    async allocateSubnet() {
+      try {
+        await this.$refs.allocationForm.validate()
+        
+        // Parse tags
+        let tags = {}
+        try {
+          if (this.allocationTagsInput.trim()) {
+            tags = JSON.parse(this.allocationTagsInput)
+          }
+        } catch (e) {
+          ElMessage.error('Invalid JSON format for tags')
+          return
+        }
+        
+        const allocationData = {
+          vrf_id: this.subnetAllocation.vrf_id,
+          subnet_size: this.subnetAllocation.subnet_size,
+          tags: tags,
+          routable: this.subnetAllocation.routable,
+          parent_prefix_id: this.subnetAllocation.parent_prefix_id || null,
+          description: this.subnetAllocation.description || null
+        }
+        
+        this.allocating = true
+        const response = await prefixAPI.allocateSubnet(allocationData)
+        
+        ElMessage.success(`Subnet ${response.data.allocated_cidr} allocated successfully!`)
+        this.showCreateDialog = false
+        await this.loadData()
+        
+      } catch (error) {
+        let errorMessage = 'Failed to allocate subnet'
+        
+        if (error.response?.data?.detail) {
+          errorMessage = error.response.data.detail
+        }
+        
+        ElMessage.error(errorMessage)
+        console.error(error)
+      } finally {
+        this.allocating = false
+      }
     }
   }
 }
@@ -1508,5 +1831,44 @@ export default {
 
 .cidr-link:hover .node-cidr {
   text-decoration: underline;
+}
+
+/* Subnet allocation styles */
+.allocation-header {
+  margin-bottom: 20px;
+}
+
+.allocation-preview {
+  background: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 4px;
+  padding: 15px;
+}
+
+.preview-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #f56c6c;
+  font-size: 14px;
+}
+
+.preview-success {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.preview-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.form-help-text {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 5px;
 }
 </style>
