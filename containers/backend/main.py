@@ -353,6 +353,31 @@ async def get_prefixes_tree(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/api/prefixes/validate", response_model=dict)
+async def validate_prefix(
+    prefix_data: PrefixCreate,
+    pm: PrefixManager = Depends(get_prefix_manager)
+):
+    """Validate a prefix for conflicts before creation"""
+    try:
+        # Run validation without creating
+        pm.validate_prefix_conflicts(
+            vrf_id=prefix_data.vrf_id,
+            cidr=prefix_data.cidr,
+            parent_prefix_id=prefix_data.parent_prefix_id
+        )
+        return {
+            "valid": True,
+            "message": f"Prefix {prefix_data.cidr} is valid and can be created"
+        }
+    except ValueError as e:
+        return {
+            "valid": False,
+            "message": str(e)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Validation error: {str(e)}")
+
 @app.post("/api/prefixes", response_model=PrefixResponse)
 async def create_prefix(
     prefix_data: PrefixCreate,
@@ -382,6 +407,9 @@ async def create_prefix(
             created_at=prefix.created_at,
             updated_at=prefix.updated_at
         )
+    except ValueError as e:
+        # Handle validation errors with clear messages
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

@@ -45,6 +45,9 @@ export const prefixAPI = {
   // Get specific prefix by ID
   getPrefix: (prefixId) => api.get(`/api/prefixes/${prefixId}`),
   
+  // Validate prefix before creation
+  validatePrefix: (data) => api.post('/api/prefixes/validate', data),
+  
   // Create new prefix
   createPrefix: (data) => api.post('/api/prefixes', data),
   

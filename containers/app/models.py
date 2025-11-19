@@ -119,6 +119,9 @@ class PrefixManager:
                            tags: Optional[Dict[str, Any]] = None, routable: bool = True,
                            vpc_children_type_flag: bool = False) -> Prefix:
         """Create a manual prefix entry"""
+        # Validate for conflicts before creating
+        self.validate_prefix_conflicts(vrf_id, cidr, parent_prefix_id)
+        
         session = self.db_manager.get_session()
         try:
             # Generate prefix_id based on the format: manual-vrfid-prefix-id
@@ -475,6 +478,73 @@ class PrefixManager:
         except (ValueError, ipaddress.AddressValueError) as e:
             raise ValueError(f"Invalid parent CIDR {parent_prefix.cidr}: {e}")
     
+    def validate_prefix_conflicts(self, vrf_id: str, cidr: str, parent_prefix_id: Optional[str] = None) -> None:
+        """
+        Validate that a new prefix doesn't conflict with existing prefixes.
+        
+        Checks for:
+        1. Exact duplicate CIDR in same VRF
+        2. Overlapping CIDRs with sibling prefixes (same parent)
+        
+        Args:
+            vrf_id: VRF ID where prefix will be created
+            cidr: CIDR block to validate
+            parent_prefix_id: Parent prefix ID (None for root prefixes)
+            
+        Raises:
+            ValueError: If conflicts are found
+        """
+        session = self.db_manager.get_session()
+        try:
+            import ipaddress
+            
+            # Parse the new CIDR
+            try:
+                new_network = ipaddress.ip_network(cidr, strict=False)
+            except (ValueError, ipaddress.AddressValueError) as e:
+                raise ValueError(f"Invalid CIDR format '{cidr}': {e}")
+            
+            # Check 1: Exact duplicate in same VRF
+            existing_exact = session.query(Prefix).filter(
+                Prefix.vrf_id == vrf_id,
+                Prefix.cidr == cidr
+            ).first()
+            
+            if existing_exact:
+                raise ValueError(f"Prefix {cidr} already exists in VRF {vrf_id}")
+            
+            # Check 2: Overlapping with sibling prefixes (same parent)
+            if parent_prefix_id:
+                # Get all sibling prefixes (same parent)
+                siblings = session.query(Prefix).filter(
+                    Prefix.vrf_id == vrf_id,
+                    Prefix.parent_prefix_id == parent_prefix_id
+                ).all()
+            else:
+                # Get all root prefixes in same VRF (no parent)
+                siblings = session.query(Prefix).filter(
+                    Prefix.vrf_id == vrf_id,
+                    Prefix.parent_prefix_id.is_(None)
+                ).all()
+            
+            # Check for overlaps with siblings
+            for sibling in siblings:
+                try:
+                    sibling_network = ipaddress.ip_network(str(sibling.cidr), strict=False)
+                except (ValueError, ipaddress.AddressValueError):
+                    # Skip invalid existing CIDRs
+                    continue
+                
+                # Check if networks overlap
+                if new_network.overlaps(sibling_network):
+                    raise ValueError(
+                        f"Prefix {cidr} overlaps with existing sibling prefix {sibling.cidr} "
+                        f"under the same parent"
+                    )
+                    
+        finally:
+            session.close()
+
     def allocate_subnet(self, vrf_id: str, subnet_size: int, tags: Optional[Dict[str, Any]] = None,
                        routable: bool = True, parent_prefix_id: Optional[str] = None,
                        description: Optional[str] = None) -> Dict[str, Any]:
