@@ -658,11 +658,97 @@
         <el-button type="primary" @click="createVPCAssociation" :loading="associating">Add Association</el-button>
       </template>
     </el-dialog>
+
+    <!-- Subnet Allocation Confirmation Dialog -->
+    <el-dialog 
+      v-model="showConfirmationDialog" 
+      title="Subnet Allocation Successful" 
+      width="600px"
+      :close-on-click-modal="false"
+    >
+      <div class="confirmation-content">
+        <!-- Success Icon and Message -->
+        <div class="success-header">
+          <el-icon class="success-icon" size="48" color="#67c23a">
+            <CircleCheck />
+          </el-icon>
+          <h3 class="success-title">CIDR Successfully Allocated!</h3>
+        </div>
+
+        <!-- Allocation Details -->
+        <div class="allocation-details">
+          <el-descriptions :column="1" border>
+            <el-descriptions-item label="Allocated CIDR">
+              <el-tag type="success" size="large" class="cidr-tag">
+                {{ allocationResult.allocated_cidr }}
+              </el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item label="Parent CIDR">
+              <el-text type="info">{{ allocationResult.parent_cidr }}</el-text>
+            </el-descriptions-item>
+            <el-descriptions-item label="Routable">
+              <el-tag :type="allocationResult.routable ? 'success' : 'warning'">
+                {{ allocationResult.routable ? 'Yes' : 'No' }}
+              </el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item label="Remaining Subnets">
+              <el-text>{{ allocationResult.available_count }} available</el-text>
+            </el-descriptions-item>
+            <el-descriptions-item label="Created At">
+              <el-text type="info">{{ formatDateTime(allocationResult.created_at) }}</el-text>
+            </el-descriptions-item>
+            <el-descriptions-item v-if="Object.keys(allocationResult.tags).length > 0" label="Tags">
+              <div class="tags-display">
+                <el-tag 
+                  v-for="(value, key) in allocationResult.tags" 
+                  :key="key"
+                  size="small"
+                  class="tag-item"
+                >
+                  {{ key }}: {{ value }}
+                </el-tag>
+              </div>
+            </el-descriptions-item>
+          </el-descriptions>
+        </div>
+
+        <!-- Quick Actions -->
+        <div class="quick-actions">
+          <el-alert
+            title="What's Next?"
+            type="info"
+            :closable="false"
+            show-icon
+          >
+            <template #default>
+              <p>Your subnet has been allocated and is ready to use. You can:</p>
+              <ul>
+                <li>Create child subnets within this allocation</li>
+                <li>Associate VPCs with this prefix</li>
+                <li>View the allocation in the prefix list</li>
+              </ul>
+            </template>
+          </el-alert>
+        </div>
+      </div>
+
+      <template #footer>
+        <div class="confirmation-footer">
+          <el-button @click="closeConfirmationDialog">Close</el-button>
+          <el-button 
+            type="primary" 
+            @click="viewAllocatedPrefix"
+          >
+            View Allocated Prefix
+          </el-button>
+        </div>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script>
-import { Plus, Search, List, Share, Check, Close, Link, Edit, Delete, QuestionFilled, Warning } from '@element-plus/icons-vue'
+import { Plus, Search, List, Share, Check, Close, Link, Edit, Delete, QuestionFilled, Warning, CircleCheck } from '@element-plus/icons-vue'
 import { prefixAPI, vrfAPI, vpcAPI } from '../api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
@@ -699,6 +785,7 @@ export default {
       showCreateDialog: false,
       showEditDialog: false,
       showVPCDialog: false,
+      showConfirmationDialog: false,
       selectedPrefix: null,
       newPrefix: {
         vrf_id: '',
@@ -763,6 +850,17 @@ export default {
       allocationRules: {
         vrf_id: [{ required: true, message: 'Please select a VRF', trigger: 'change' }],
         subnet_size: [{ required: true, message: 'Please select subnet size', trigger: 'change' }]
+      },
+      // Allocation confirmation data
+      allocationResult: {
+        allocated_cidr: '',
+        parent_prefix_id: '',
+        prefix_id: '',
+        available_count: 0,
+        parent_cidr: '',
+        tags: {},
+        routable: true,
+        created_at: ''
       }
     }
   },
@@ -1591,9 +1689,21 @@ export default {
         this.allocating = true
         const response = await prefixAPI.allocateSubnet(allocationData)
         
-        ElMessage.success(`Subnet ${response.data.allocated_cidr} allocated successfully!`)
+        // Store allocation result for confirmation dialog
+        this.allocationResult = {
+          allocated_cidr: response.data.allocated_cidr,
+          parent_prefix_id: response.data.parent_prefix_id,
+          prefix_id: response.data.prefix_id,
+          available_count: response.data.available_count,
+          parent_cidr: response.data.parent_cidr,
+          tags: response.data.tags || {},
+          routable: response.data.routable,
+          created_at: response.data.created_at
+        }
+        
+        // Show confirmation dialog instead of toast
         this.showCreateDialog = false
-        await this.loadData()
+        this.showConfirmationDialog = true
         
       } catch (error) {
         let errorMessage = 'Failed to allocate subnet'
@@ -1606,6 +1716,27 @@ export default {
         console.error(error)
       } finally {
         this.allocating = false
+      }
+    },
+
+    closeConfirmationDialog() {
+      this.showConfirmationDialog = false
+      // Refresh the data to show the new allocation
+      this.loadData()
+    },
+
+    viewAllocatedPrefix() {
+      // Navigate to the allocated prefix detail page
+      this.$router.push(`/prefixes/${this.allocationResult.prefix_id}`)
+      this.showConfirmationDialog = false
+    },
+
+    formatDateTime(dateString) {
+      if (!dateString) return ''
+      try {
+        return new Date(dateString).toLocaleString()
+      } catch (e) {
+        return dateString
       }
     }
   }
@@ -1707,6 +1838,67 @@ export default {
 
 .view-toggle {
   margin-bottom: 20px;
+}
+
+/* Confirmation Dialog Styles */
+.confirmation-content {
+  text-align: center;
+}
+
+.success-header {
+  margin-bottom: 24px;
+}
+
+.success-icon {
+  margin-bottom: 16px;
+}
+
+.success-title {
+  color: #67c23a;
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.allocation-details {
+  margin: 24px 0;
+  text-align: left;
+}
+
+.cidr-tag {
+  font-size: 16px;
+  font-weight: 600;
+  padding: 8px 16px;
+}
+
+.tags-display {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tag-item {
+  margin: 0;
+}
+
+.quick-actions {
+  margin-top: 24px;
+  text-align: left;
+}
+
+.quick-actions ul {
+  margin: 8px 0 0 0;
+  padding-left: 20px;
+}
+
+.quick-actions li {
+  margin-bottom: 4px;
+}
+
+.confirmation-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
 }
 
 .tag-item {
