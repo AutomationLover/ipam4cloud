@@ -4,7 +4,7 @@ FastAPI Backend for Prefix Management System
 Provides REST API endpoints for the Vue.js frontend
 """
 
-from fastapi import FastAPI, HTTPException, Depends, Query
+from fastapi import FastAPI, HTTPException, Depends, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
@@ -15,10 +15,12 @@ from datetime import datetime
 
 # Add the app directory to Python path to import models
 sys.path.append('/app')
-from models import DatabaseManager, PrefixManager, VRF, VPC, Prefix
+from models import DatabaseManager, PrefixManager, VRF, VPC, Prefix, IdempotencyRecord
 from data_export_import import DataExporter, DataImporter
 from backup_restore import BackupManager
 from pc_export_import import PCExportImportManager
+from idempotency_service import IdempotencyService, IdempotencyManager
+from middleware import setup_middleware
 
 # Pydantic models for API
 class PrefixResponse(BaseModel):
@@ -42,6 +44,7 @@ class PrefixCreate(BaseModel):
     tags: Optional[Dict[str, Any]] = {}
     routable: bool = True
     vpc_children_type_flag: bool = False
+    request_id: Optional[str] = Field(None, description="Optional request ID for idempotency")
 
 class PrefixUpdate(BaseModel):
     vrf_id: Optional[str] = None
@@ -64,6 +67,7 @@ class VRFCreate(BaseModel):
     tags: Optional[Dict[str, Any]] = {}
     routable_flag: bool = True
     is_default: bool = False
+    request_id: Optional[str] = Field(None, description="Optional request ID for idempotency")
 
 class VRFUpdate(BaseModel):
     description: Optional[str] = None
@@ -87,6 +91,7 @@ class VPCCreate(BaseModel):
     provider_vpc_id: str
     region: str
     tags: Optional[Dict[str, Any]] = {}
+    request_id: Optional[str] = Field(None, description="Optional request ID for idempotency")
 
 class VPCUpdate(BaseModel):
     description: Optional[str] = None
@@ -107,6 +112,7 @@ class SubnetAllocationRequest(BaseModel):
     routable: Optional[bool] = Field(default=True, description="Whether the allocated subnet should be routable")
     parent_prefix_id: Optional[str] = Field(default=None, description="Optional specific parent prefix ID")
     description: Optional[str] = Field(default=None, description="Description for the allocated subnet")
+    request_id: Optional[str] = Field(None, description="Optional request ID for idempotency")
 
 class SubnetAllocationResponse(BaseModel):
     allocated_cidr: str
@@ -136,6 +142,17 @@ TreeNode.model_rebuild()
 # Initialize FastAPI app
 app = FastAPI(title="Prefix Management API", version="1.0.0")
 
+# Setup middleware (request ID, logging, error handling, performance monitoring)
+setup_middleware(app, {
+    'slow_request_threshold_ms': 1000.0,
+    'collect_stats': True,
+    'log_request_body': False,  # Set to True for debugging
+    'log_response_body': False,  # Set to True for debugging
+    'exclude_paths': ["/health", "/metrics", "/api/stats"],
+    'request_id_header': "X-Request-ID",
+    'generate_request_id': True
+})
+
 # CORS middleware for Vue.js frontends (admin + readonly portals)
 app.add_middleware(
     CORSMiddleware,
@@ -152,7 +169,14 @@ app.add_middleware(
 # Database connection
 database_url = os.getenv('DATABASE_URL', 'postgresql://prefix_user:prefix_pass@postgres:5432/prefix_management')
 db_manager = DatabaseManager(database_url)
+db_manager.create_tables()
+
+# Initialize managers
 prefix_manager = PrefixManager(db_manager)
+
+# Initialize idempotency service
+idempotency_service = IdempotencyService(db_manager, default_ttl_hours=24)
+idempotency_manager = IdempotencyManager(idempotency_service)
 
 def get_prefix_manager():
     return prefix_manager
@@ -381,32 +405,63 @@ async def validate_prefix(
 @app.post("/api/prefixes", response_model=PrefixResponse)
 async def create_prefix(
     prefix_data: PrefixCreate,
+    request: Request,
     pm: PrefixManager = Depends(get_prefix_manager)
 ):
-    """Create a new manual prefix"""
+    """Create a new manual prefix with idempotency support"""
     try:
-        prefix = pm.create_manual_prefix(
-            vrf_id=prefix_data.vrf_id,
-            cidr=prefix_data.cidr,
-            parent_prefix_id=prefix_data.parent_prefix_id,
-            tags=prefix_data.tags,
-            routable=prefix_data.routable,
-            vpc_children_type_flag=prefix_data.vpc_children_type_flag
+        # Get request ID from header or request body
+        request_id = prefix_data.request_id or getattr(request.state, 'request_id', None)
+        
+        # Prepare request parameters for idempotency check
+        request_params = {
+            'vrf_id': prefix_data.vrf_id,
+            'cidr': prefix_data.cidr,
+            'parent_prefix_id': prefix_data.parent_prefix_id,
+            'tags': prefix_data.tags,
+            'routable': prefix_data.routable,
+            'vpc_children_type_flag': prefix_data.vpc_children_type_flag
+        }
+        
+        def create_prefix_operation():
+            prefix = pm.create_manual_prefix(
+                vrf_id=prefix_data.vrf_id,
+                cidr=prefix_data.cidr,
+                parent_prefix_id=prefix_data.parent_prefix_id,
+                tags=prefix_data.tags,
+                routable=prefix_data.routable,
+                vpc_children_type_flag=prefix_data.vpc_children_type_flag
+            )
+            return PrefixResponse(
+                prefix_id=prefix.prefix_id,
+                vrf_id=prefix.vrf_id,
+                cidr=str(prefix.cidr),
+                tags=prefix.tags,
+                indentation_level=prefix.indentation_level,
+                parent_prefix_id=prefix.parent_prefix_id,
+                source=prefix.source,
+                routable=prefix.routable,
+                vpc_children_type_flag=prefix.vpc_children_type_flag,
+                vpc_id=str(prefix.vpc_id) if prefix.vpc_id else None,
+                created_at=prefix.created_at,
+                updated_at=prefix.updated_at
+            )
+        
+        # Process with idempotency
+        response_data, status_code, actual_request_id = idempotency_manager.process_request(
+            request_id=request_id,
+            endpoint="/api/prefixes",
+            method="POST",
+            request_params=request_params,
+            processor_func=create_prefix_operation
         )
-        return PrefixResponse(
-            prefix_id=prefix.prefix_id,
-            vrf_id=prefix.vrf_id,
-            cidr=str(prefix.cidr),
-            tags=prefix.tags,
-            indentation_level=prefix.indentation_level,
-            parent_prefix_id=prefix.parent_prefix_id,
-            source=prefix.source,
-            routable=prefix.routable,
-            vpc_children_type_flag=prefix.vpc_children_type_flag,
-            vpc_id=str(prefix.vpc_id) if prefix.vpc_id else None,
-            created_at=prefix.created_at,
-            updated_at=prefix.updated_at
-        )
+        
+        # Add request ID to response headers
+        if actual_request_id:
+            request.state.response_request_id = actual_request_id
+        
+        return response_data
+        
     except ValueError as e:
         # Handle validation errors with clear messages
         raise HTTPException(status_code=400, detail=str(e))
@@ -492,7 +547,8 @@ async def delete_prefix(
 
 @app.post("/api/prefixes/allocate-subnet", response_model=SubnetAllocationResponse)
 async def allocate_subnet(
-    request: SubnetAllocationRequest,
+    allocation_request: SubnetAllocationRequest,
+    request: Request,
     pm: PrefixManager = Depends(get_prefix_manager)
 ):
     """
@@ -504,27 +560,60 @@ async def allocate_subnet(
     - Optional specific parent prefix ID
     
     The system will find the first available subnet that doesn't overlap with existing allocations.
+    
+    This endpoint supports idempotency - if the same request_id is used with identical parameters,
+    the same allocated subnet will be returned instead of allocating a new one.
     """
     try:
-        result = pm.allocate_subnet(
-            vrf_id=request.vrf_id,
-            subnet_size=request.subnet_size,
-            tags=request.tags,
-            routable=request.routable,
-            parent_prefix_id=request.parent_prefix_id,
-            description=request.description
+        # Get request ID from header or request body
+        request_id = allocation_request.request_id or getattr(request.state, 'request_id', None)
+        
+        # Prepare request parameters for idempotency check
+        request_params = {
+            'vrf_id': allocation_request.vrf_id,
+            'subnet_size': allocation_request.subnet_size,
+            'tags': allocation_request.tags,
+            'routable': allocation_request.routable,
+            'parent_prefix_id': allocation_request.parent_prefix_id,
+            'description': allocation_request.description
+        }
+        
+        def allocate_subnet_operation():
+            result = pm.allocate_subnet(
+                vrf_id=allocation_request.vrf_id,
+                subnet_size=allocation_request.subnet_size,
+                tags=allocation_request.tags,
+                routable=allocation_request.routable,
+                parent_prefix_id=allocation_request.parent_prefix_id,
+                description=allocation_request.description
+            )
+            
+            return SubnetAllocationResponse(
+                allocated_cidr=result['allocated_cidr'],
+                parent_prefix_id=result['parent_prefix_id'],
+                prefix_id=result['prefix_id'],
+                available_count=result['available_count'],
+                parent_cidr=result['parent_cidr'],
+                tags=result['tags'],
+                routable=result['routable'],
+                created_at=result['created_at']
+            )
+        
+        # Process with idempotency
+        response_data, status_code, actual_request_id = idempotency_manager.process_request(
+            request_id=request_id,
+            endpoint="/api/prefixes/allocate-subnet",
+            method="POST",
+            request_params=request_params,
+            processor_func=allocate_subnet_operation
         )
         
-        return SubnetAllocationResponse(
-            allocated_cidr=result['allocated_cidr'],
-            parent_prefix_id=result['parent_prefix_id'],
-            prefix_id=result['prefix_id'],
-            available_count=result['available_count'],
-            parent_cidr=result['parent_cidr'],
-            tags=result['tags'],
-            routable=result['routable'],
-            created_at=result['created_at']
-        )
+        # Add request ID to response headers
+        if actual_request_id:
+            request.state.response_request_id = actual_request_id
+        
+        return response_data
+        
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -1390,6 +1479,32 @@ async def validate_pc_folder(pc_folder: str):
         raise HTTPException(status_code=500, detail=f"PC validation failed: {str(e)}")
 
 
+# Idempotency management endpoints
+@app.get("/api/idempotency/stats")
+async def get_idempotency_stats():
+    """Get statistics about idempotency records"""
+    try:
+        stats = idempotency_service.get_record_stats()
+        return {
+            "status": "success",
+            "stats": stats
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get idempotency stats: {str(e)}")
+
+@app.post("/api/idempotency/cleanup")
+async def cleanup_expired_idempotency_records():
+    """Manually trigger cleanup of expired idempotency records"""
+    try:
+        deleted_count = idempotency_service.cleanup_expired_records()
+        return {
+            "status": "success",
+            "deleted_count": deleted_count,
+            "message": f"Cleaned up {deleted_count} expired idempotency records"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Cleanup failed: {str(e)}")
+
 # Health check
 @app.get("/health")
 async def health_check():
@@ -1397,9 +1512,20 @@ async def health_check():
         session = db_manager.get_session()
         session.execute("SELECT 1")
         session.close()
-        return {"status": "healthy", "database": "connected"}
+        
+        # Check idempotency service
+        idempotency_stats = idempotency_service.get_record_stats()
+        
+        return {
+            "status": "healthy", 
+            "database": "connected",
+            "idempotency": {
+                "service": "available",
+                "active_records": idempotency_stats.get("active_records", 0)
+            }
+        }
     except Exception as e:
-        raise HTTPException(status_code=503, detail=f"Database connection failed: {str(e)}")
+        raise HTTPException(status_code=503, detail=f"Health check failed: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn

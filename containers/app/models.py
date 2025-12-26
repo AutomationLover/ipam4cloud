@@ -1,10 +1,11 @@
-from sqlalchemy import create_engine, Column, String, Boolean, Integer, DateTime, Text, ForeignKey, UniqueConstraint, CheckConstraint, text
+from sqlalchemy import create_engine, Column, String, Boolean, Integer, DateTime, Text, ForeignKey, UniqueConstraint, CheckConstraint, text, Index
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from sqlalchemy.dialects.postgresql import UUID, CIDR, JSONB
 from sqlalchemy.sql import func
 import uuid
 import json
+import hashlib
 from typing import Optional, List, Dict, Any
 import ipaddress
 from datetime import datetime
@@ -99,6 +100,42 @@ class VPCPrefixAssociation(Base):
     
     def __repr__(self):
         return f"<VPCPrefixAssociation(vpc_id='{self.vpc_id}', vpc_prefix_cidr='{self.vpc_prefix_cidr}', routable={self.routable})>"
+
+class IdempotencyRecord(Base):
+    """
+    Tracks idempotent requests to prevent duplicate operations.
+    
+    When a request includes a request_id, we store the request parameters and response.
+    If the same request_id is used again:
+    - If parameters match, return the stored response
+    - If parameters don't match, return an error
+    """
+    __tablename__ = 'idempotency_record'
+    
+    request_id = Column(String, primary_key=True)
+    endpoint = Column(String, nullable=False)
+    method = Column(String, nullable=False)
+    request_hash = Column(String, nullable=False)  # Hash of request parameters
+    request_params = Column(JSONB, nullable=False)  # Original request parameters
+    response_data = Column(JSONB, nullable=False)  # Stored response
+    status_code = Column(Integer, nullable=False)  # HTTP status code
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)  # TTL for cleanup
+    
+    __table_args__ = (
+        Index('idx_idempotency_expires_at', 'expires_at'),
+        Index('idx_idempotency_endpoint_method', 'endpoint', 'method'),
+    )
+    
+    def __repr__(self):
+        return f"<IdempotencyRecord(request_id='{self.request_id}', endpoint='{self.endpoint}', method='{self.method}')>"
+    
+    @staticmethod
+    def generate_request_hash(params: Dict[str, Any]) -> str:
+        """Generate a consistent hash from request parameters"""
+        # Sort parameters to ensure consistent hashing
+        sorted_params = json.dumps(params, sort_keys=True, default=str)
+        return hashlib.sha256(sorted_params.encode()).hexdigest()
 
 class DatabaseManager:
     def __init__(self, database_url: str):
