@@ -159,8 +159,7 @@ class PrefixManager:
         # Validate for conflicts before creating
         self.validate_prefix_conflicts(vrf_id, cidr, parent_prefix_id)
         
-        session = self.db_manager.get_session()
-        try:
+        with self.db_manager.get_session() as session:
             # Generate prefix_id based on the format: manual-vrfid-prefix-id
             cidr_formatted = cidr.replace('/', '-').replace('.', '-')
             prefix_id = f"manual-{vrf_id}-{cidr_formatted}"
@@ -180,13 +179,10 @@ class PrefixManager:
             session.commit()
             session.refresh(prefix)
             return prefix
-        finally:
-            session.close()
     
     def create_public_ip_prefix(self, vpc_id: uuid.UUID, cidr: str, tags: Optional[Dict[str, Any]] = None) -> Prefix:
         """Create a public IP prefix entry for a VPC following the vpc-subnet-prefix format"""
-        session = self.db_manager.get_session()
-        try:
+        with self.db_manager.get_session() as session:
             # Generate prefix_id in format: vpcid-subnet-prefix (for public IPs)
             cidr_formatted = cidr.replace('/', '-').replace('.', '-')
             prefix_id = f"{vpc_id}-subnet-{cidr_formatted}"
@@ -207,13 +203,10 @@ class PrefixManager:
             session.commit()
             session.refresh(prefix)
             return prefix
-        finally:
-            session.close()
     
     def create_standalone_public_ip_prefix(self, cidr: str, tags: Optional[Dict[str, Any]] = None) -> Prefix:
         """Create a standalone public IP prefix entry (not associated with any VPC)"""
-        session = self.db_manager.get_session()
-        try:
+        with self.db_manager.get_session() as session:
             # Generate prefix_id for standalone public IPs
             cidr_formatted = cidr.replace('/', '-').replace('.', '-')
             prefix_id = f"public-ip-{cidr_formatted}"
@@ -234,14 +227,11 @@ class PrefixManager:
             session.commit()
             session.refresh(prefix)
             return prefix
-        finally:
-            session.close()
     
     def create_vpc(self, description: str, provider: str, provider_account_id: str,
                    provider_vpc_id: str, region: str, tags: Optional[Dict[str, Any]] = None) -> VPC:
         """Create a VPC entry"""
-        session = self.db_manager.get_session()
-        try:
+        with self.db_manager.get_session() as session:
             vpc = VPC(
                 description=description,
                 provider=provider,
@@ -255,13 +245,10 @@ class PrefixManager:
             session.commit()
             session.refresh(vpc)
             return vpc
-        finally:
-            session.close()
     
     def update_vpc(self, vpc_id: str, **kwargs) -> VPC:
         """Update a VPC entry"""
-        session = self.db_manager.get_session()
-        try:
+        with self.db_manager.get_session() as session:
             vpc = session.query(VPC).filter(VPC.vpc_id == uuid.UUID(vpc_id)).first()
             if not vpc:
                 raise ValueError(f"VPC {vpc_id} not found")
@@ -274,14 +261,11 @@ class PrefixManager:
             session.commit()
             session.refresh(vpc)
             return vpc
-        finally:
-            session.close()
     
     def associate_vpc_with_prefix(self, vpc_id: uuid.UUID, vpc_prefix_cidr: str, 
                                  routable: bool, parent_prefix_id: str) -> VPCPrefixAssociation:
         """Associate a VPC with a prefix"""
-        session = self.db_manager.get_session()
-        try:
+        with self.db_manager.get_session() as session:
             association = VPCPrefixAssociation(
                 vpc_id=vpc_id,
                 vpc_prefix_cidr=vpc_prefix_cidr,
@@ -293,14 +277,11 @@ class PrefixManager:
             session.commit()
             session.refresh(association)
             return association
-        finally:
-            session.close()
     
     def upsert_vpc_subnet(self, vpc_id: uuid.UUID, subnet_cidr: str, 
                          tags: Optional[Dict[str, Any]] = None) -> str:
         """Simulate the upsert_vpc_subnet stored procedure"""
-        session = self.db_manager.get_session()
-        try:
+        with self.db_manager.get_session() as session:
             # Call the stored procedure
             result = session.execute(
                 text("SELECT upsert_vpc_subnet(:vpc_id, :subnet_cidr, :tags)"),
@@ -313,47 +294,35 @@ class PrefixManager:
             prefix_id = result.fetchone()[0]
             session.commit()
             return prefix_id
-        finally:
-            session.close()
     
     def get_prefix_tree(self, vrf_id: Optional[str] = None) -> List[Prefix]:
         """Get prefixes in tree order"""
-        session = self.db_manager.get_session()
-        try:
+        with self.db_manager.get_session() as session:
             query = session.query(Prefix).order_by(Prefix.vrf_id, Prefix.indentation_level, Prefix.cidr)
             if vrf_id:
                 query = query.filter(Prefix.vrf_id == vrf_id)
             return query.all()
-        finally:
-            session.close()
     
     def get_children_prefixes(self, parent_prefix_id: str) -> List[Prefix]:
         """Get all children of a specific prefix"""
-        session = self.db_manager.get_session()
-        try:
+        with self.db_manager.get_session() as session:
             return session.query(Prefix).filter(
                 Prefix.parent_prefix_id == parent_prefix_id
             ).order_by(Prefix.cidr).all()
-        finally:
-            session.close()
     
     def query_prefix_by_cidr(self, vrf_id: str, cidr: str) -> Optional[Prefix]:
         """Query a specific prefix by CIDR"""
-        session = self.db_manager.get_session()
-        try:
+        with self.db_manager.get_session() as session:
             return session.query(Prefix).filter(
                 Prefix.vrf_id == vrf_id,
                 Prefix.cidr == cidr
             ).first()
-        finally:
-            session.close()
     
     def filter_prefixes(self, vrf_id: Optional[str] = None, routable: Optional[bool] = None,
                        source: Optional[str] = None, provider: Optional[str] = None,
                        provider_account_id: Optional[str] = None) -> List[Prefix]:
         """Filter prefixes by various criteria"""
-        session = self.db_manager.get_session()
-        try:
+        with self.db_manager.get_session() as session:
             query = session.query(Prefix)
             
             if vrf_id:
@@ -371,13 +340,10 @@ class PrefixManager:
                     query = query.filter(VPC.provider_account_id == provider_account_id)
             
             return query.order_by(Prefix.cidr).all()
-        finally:
-            session.close()
     
     def update_manual_prefix(self, prefix_id: str, **kwargs) -> Prefix:
         """Update a manual prefix (only manual prefixes can be updated)"""
-        session = self.db_manager.get_session()
-        try:
+        with self.db_manager.get_session() as session:
             prefix = session.query(Prefix).filter(Prefix.prefix_id == prefix_id).first()
             if not prefix:
                 raise ValueError(f"Prefix {prefix_id} not found")
@@ -393,13 +359,10 @@ class PrefixManager:
             session.commit()
             session.refresh(prefix)
             return prefix
-        finally:
-            session.close()
     
     def delete_manual_prefix(self, prefix_id: str) -> bool:
         """Delete a manual prefix (only manual prefixes can be deleted)"""
-        session = self.db_manager.get_session()
-        try:
+        with self.db_manager.get_session() as session:
             prefix = session.query(Prefix).filter(Prefix.prefix_id == prefix_id).first()
             if not prefix:
                 raise ValueError(f"Prefix {prefix_id} not found")
@@ -415,34 +378,24 @@ class PrefixManager:
             session.delete(prefix)
             session.commit()
             return True
-        finally:
-            session.close()
     
     def get_prefix_by_id(self, prefix_id: str) -> Optional[Prefix]:
         """Get a specific prefix by ID"""
-        session = self.db_manager.get_session()
-        try:
+        with self.db_manager.get_session() as session:
             return session.query(Prefix).filter(Prefix.prefix_id == prefix_id).first()
-        finally:
-            session.close()
     
     def is_prefix_associated_with_vpc(self, prefix_id: str) -> bool:
         """Check if a manual prefix is associated with any VPC"""
-        session = self.db_manager.get_session()
-        try:
-            from models import VPCPrefixAssociation
+        with self.db_manager.get_session() as session:
             association = session.query(VPCPrefixAssociation).filter(
                 VPCPrefixAssociation.parent_prefix_id == prefix_id
             ).first()
             return association is not None
-        finally:
-            session.close()
 
     def find_matching_parent_prefixes(self, vrf_id: str, tags: Dict[str, Any], 
                                      parent_prefix_id: Optional[str] = None) -> List[Prefix]:
         """Find parent prefixes that match the given tags (strict match)"""
-        session = self.db_manager.get_session()
-        try:
+        with self.db_manager.get_session() as session:
             query = session.query(Prefix).filter(
                 Prefix.vrf_id == vrf_id,
                 Prefix.source == 'manual'  # Only manual prefixes can be parents for allocation
@@ -461,8 +414,6 @@ class PrefixManager:
                     matching_prefixes.append(prefix)
             
             return matching_prefixes
-        finally:
-            session.close()
     
     def _tags_match_strictly(self, prefix_tags: Dict[str, Any], required_tags: Dict[str, Any]) -> bool:
         """Check if prefix tags contain all required tags with exact values"""
@@ -483,8 +434,7 @@ class PrefixManager:
             possible_subnets = list(parent_network.subnets(new_prefix=subnet_size))
             
             # Get existing child prefixes
-            session = self.db_manager.get_session()
-            try:
+            with self.db_manager.get_session() as session:
                 children = session.query(Prefix).filter(
                     Prefix.parent_prefix_id == parent_prefix.prefix_id
                 ).all()
@@ -509,8 +459,6 @@ class PrefixManager:
                         available_subnets.append(str(subnet))
                 
                 return available_subnets
-            finally:
-                session.close()
                 
         except (ValueError, ipaddress.AddressValueError) as e:
             raise ValueError(f"Invalid parent CIDR {parent_prefix.cidr}: {e}")
@@ -531,10 +479,7 @@ class PrefixManager:
         Raises:
             ValueError: If conflicts are found
         """
-        session = self.db_manager.get_session()
-        try:
-            import ipaddress
-            
+        with self.db_manager.get_session() as session:
             # Parse the new CIDR
             try:
                 new_network = ipaddress.ip_network(cidr, strict=False)
@@ -578,13 +523,10 @@ class PrefixManager:
                         f"Prefix {cidr} overlaps with existing sibling prefix {sibling.cidr} "
                         f"under the same parent"
                     )
-                    
-        finally:
-            session.close()
 
     def allocate_subnet(self, vrf_id: str, subnet_size: int, tags: Optional[Dict[str, Any]] = None,
                        routable: bool = True, parent_prefix_id: Optional[str] = None,
-                       description: Optional[str] = None) -> Dict[str, Any]:
+                       description: Optional[str] = None, vpc_children_type_flag: bool = False) -> Dict[str, Any]:
         """
         Allocate the first available subnet of specified size from matching parent prefixes.
         
@@ -595,6 +537,8 @@ class PrefixManager:
             routable: Whether allocated subnet should be routable
             parent_prefix_id: Optional specific parent prefix ID
             description: Optional description for the allocated subnet
+            vpc_children_type_flag: If True, allocated subnet cannot have child CIDRs (final allocated).
+                                   If False, can have manual child prefixes. Defaults to False.
             
         Returns:
             Dict containing allocation details
@@ -640,7 +584,7 @@ class PrefixManager:
                         parent_prefix_id=parent.prefix_id,
                         tags=subnet_tags,
                         routable=routable,
-                        vpc_children_type_flag=False
+                        vpc_children_type_flag=vpc_children_type_flag
                     )
                     
                     return {

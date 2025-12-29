@@ -8,6 +8,9 @@ from fastapi import FastAPI, HTTPException, Depends, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
+from contextlib import contextmanager
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError, OperationalError, IntegrityError
 import os
 import sys
 import uuid
@@ -112,6 +115,7 @@ class SubnetAllocationRequest(BaseModel):
     routable: Optional[bool] = Field(default=True, description="Whether the allocated subnet should be routable")
     parent_prefix_id: Optional[str] = Field(default=None, description="Optional specific parent prefix ID")
     description: Optional[str] = Field(default=None, description="Description for the allocated subnet")
+    vpc_children_type_flag: Optional[bool] = Field(default=False, description="If True, allocated subnet cannot have child CIDRs (final allocated). If False, can have manual child prefixes.")
     request_id: Optional[str] = Field(None, description="Optional request ID for idempotency")
 
 class SubnetAllocationResponse(BaseModel):
@@ -180,6 +184,36 @@ idempotency_manager = IdempotencyManager(idempotency_service)
 
 def get_prefix_manager():
     return prefix_manager
+
+# Context manager for database sessions with HTTP error handling
+@contextmanager
+def get_db_session_with_http_error_handling(db_manager: DatabaseManager):
+    """
+    Context manager for database sessions that ensures proper cleanup and handles errors.
+    
+    Automatically converts database errors to HTTPException:
+    - HTTPException: Passes through (handled by FastAPI)
+    - IntegrityError: Converts to HTTP 400 (constraint violations)
+    - SQLAlchemyError/OperationalError: Converts to HTTP 500 (database errors)
+    - Other exceptions: Converts to HTTP 500 (internal server errors)
+    """
+    session = db_manager.get_session()
+    try:
+        yield session
+    except HTTPException:
+        # FastAPI handles HTTPException automatically, just re-raise
+        raise
+    except IntegrityError as e:
+        # Database constraint violations (e.g., unique constraint, foreign key)
+        raise HTTPException(status_code=400, detail=f"Database constraint violation: {str(e)}")
+    except (SQLAlchemyError, OperationalError) as e:
+        # Database connection or query errors
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    except Exception as e:
+        # Other unexpected errors
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+    finally:
+        session.close()
 
 def is_auto_created_vrf(vrf_id: str) -> bool:
     """Check if a VRF ID represents an auto-created VRF"""
@@ -377,31 +411,6 @@ async def get_prefixes_tree(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/prefixes/validate", response_model=dict)
-async def validate_prefix(
-    prefix_data: PrefixCreate,
-    pm: PrefixManager = Depends(get_prefix_manager)
-):
-    """Validate a prefix for conflicts before creation"""
-    try:
-        # Run validation without creating
-        pm.validate_prefix_conflicts(
-            vrf_id=prefix_data.vrf_id,
-            cidr=prefix_data.cidr,
-            parent_prefix_id=prefix_data.parent_prefix_id
-        )
-        return {
-            "valid": True,
-            "message": f"Prefix {prefix_data.cidr} is valid and can be created"
-        }
-    except ValueError as e:
-        return {
-            "valid": False,
-            "message": str(e)
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Validation error: {str(e)}")
-
 @app.post("/api/prefixes", response_model=PrefixResponse)
 async def create_prefix(
     prefix_data: PrefixCreate,
@@ -575,7 +584,8 @@ async def allocate_subnet(
             'tags': allocation_request.tags,
             'routable': allocation_request.routable,
             'parent_prefix_id': allocation_request.parent_prefix_id,
-            'description': allocation_request.description
+            'description': allocation_request.description,
+            'vpc_children_type_flag': allocation_request.vpc_children_type_flag
         }
         
         def allocate_subnet_operation():
@@ -585,7 +595,8 @@ async def allocate_subnet(
                 tags=allocation_request.tags,
                 routable=allocation_request.routable,
                 parent_prefix_id=allocation_request.parent_prefix_id,
-                description=allocation_request.description
+                description=allocation_request.description,
+                vpc_children_type_flag=allocation_request.vpc_children_type_flag
             )
             
             return SubnetAllocationResponse(
@@ -709,21 +720,15 @@ async def can_create_child_prefix(
 @app.get("/api/vrfs", response_model=List[VRFResponse])
 async def get_vrfs(pm: PrefixManager = Depends(get_prefix_manager)):
     """Get all VRFs"""
-    try:
-        session = pm.db_manager.get_session()
-        try:
-            vrfs = session.query(VRF).all()
-            return [VRFResponse(
-                vrf_id=vrf.vrf_id,
-                description=vrf.description,
-                tags=vrf.tags,
-                routable_flag=vrf.routable_flag,
-                is_default=vrf.is_default
-            ) for vrf in vrfs]
-        finally:
-            session.close()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    with get_db_session_with_http_error_handling(pm.db_manager) as session:
+        vrfs = session.query(VRF).all()
+        return [VRFResponse(
+            vrf_id=vrf.vrf_id,
+            description=vrf.description,
+            tags=vrf.tags,
+            routable_flag=vrf.routable_flag,
+            is_default=vrf.is_default
+        ) for vrf in vrfs]
 
 @app.post("/api/vrfs", response_model=VRFResponse)
 async def create_vrf(
@@ -731,44 +736,36 @@ async def create_vrf(
     pm: PrefixManager = Depends(get_prefix_manager)
 ):
     """Create a new VRF"""
-    try:
-        session = pm.db_manager.get_session()
-        try:
-            # Check if VRF ID already exists
-            existing_vrf = session.query(VRF).filter(VRF.vrf_id == vrf_data.vrf_id).first()
-            if existing_vrf:
-                raise HTTPException(status_code=400, detail=f"VRF with ID '{vrf_data.vrf_id}' already exists")
-            
-            # If setting as default, unset other defaults
-            if vrf_data.is_default:
-                session.query(VRF).update({VRF.is_default: False})
-            
-            # Create new VRF
-            vrf = VRF(
-                vrf_id=vrf_data.vrf_id,
-                description=vrf_data.description,
-                tags=vrf_data.tags or {},
-                routable_flag=vrf_data.routable_flag,
-                is_default=vrf_data.is_default
-            )
-            
-            session.add(vrf)
-            session.commit()
-            session.refresh(vrf)
-            
-            return VRFResponse(
-                vrf_id=vrf.vrf_id,
-                description=vrf.description,
-                tags=vrf.tags,
-                routable_flag=vrf.routable_flag,
-                is_default=vrf.is_default
-            )
-        finally:
-            session.close()
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    with get_db_session_with_http_error_handling(pm.db_manager) as session:
+        # Check if VRF ID already exists
+        existing_vrf = session.query(VRF).filter(VRF.vrf_id == vrf_data.vrf_id).first()
+        if existing_vrf:
+            raise HTTPException(status_code=400, detail=f"VRF with ID '{vrf_data.vrf_id}' already exists")
+        
+        # If setting as default, unset other defaults
+        if vrf_data.is_default:
+            session.query(VRF).update({VRF.is_default: False})
+        
+        # Create new VRF
+        vrf = VRF(
+            vrf_id=vrf_data.vrf_id,
+            description=vrf_data.description,
+            tags=vrf_data.tags or {},
+            routable_flag=vrf_data.routable_flag,
+            is_default=vrf_data.is_default
+        )
+        
+        session.add(vrf)
+        session.commit()
+        session.refresh(vrf)
+        
+        return VRFResponse(
+            vrf_id=vrf.vrf_id,
+            description=vrf.description,
+            tags=vrf.tags,
+            routable_flag=vrf.routable_flag,
+            is_default=vrf.is_default
+        )
 
 @app.get("/api/vrfs/{vrf_id}", response_model=VRFResponse)
 async def get_vrf(
@@ -776,26 +773,18 @@ async def get_vrf(
     pm: PrefixManager = Depends(get_prefix_manager)
 ):
     """Get a specific VRF by ID"""
-    try:
-        session = pm.db_manager.get_session()
-        try:
-            vrf = session.query(VRF).filter(VRF.vrf_id == vrf_id).first()
-            if not vrf:
-                raise HTTPException(status_code=404, detail="VRF not found")
-            
-            return VRFResponse(
-                vrf_id=vrf.vrf_id,
-                description=vrf.description,
-                tags=vrf.tags,
-                routable_flag=vrf.routable_flag,
-                is_default=vrf.is_default
-            )
-        finally:
-            session.close()
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    with get_db_session_with_http_error_handling(pm.db_manager) as session:
+        vrf = session.query(VRF).filter(VRF.vrf_id == vrf_id).first()
+        if not vrf:
+            raise HTTPException(status_code=404, detail="VRF not found")
+        
+        return VRFResponse(
+            vrf_id=vrf.vrf_id,
+            description=vrf.description,
+            tags=vrf.tags,
+            routable_flag=vrf.routable_flag,
+            is_default=vrf.is_default
+        )
 
 @app.put("/api/vrfs/{vrf_id}", response_model=VRFResponse)
 async def update_vrf(
@@ -804,47 +793,39 @@ async def update_vrf(
     pm: PrefixManager = Depends(get_prefix_manager)
 ):
     """Update an existing VRF"""
-    try:
-        session = pm.db_manager.get_session()
-        try:
-            vrf = session.query(VRF).filter(VRF.vrf_id == vrf_id).first()
-            if not vrf:
-                raise HTTPException(status_code=404, detail="VRF not found")
-            
-            # Prevent editing auto-created VRFs
-            if is_auto_created_vrf(vrf_id):
-                raise HTTPException(status_code=403, detail="Cannot edit auto-created VRF")
-            
-            # If setting as default, unset other defaults
-            if vrf_data.is_default is True:
-                session.query(VRF).filter(VRF.vrf_id != vrf_id).update({VRF.is_default: False})
-            
-            # Update fields if provided
-            if vrf_data.description is not None:
-                vrf.description = vrf_data.description
-            if vrf_data.tags is not None:
-                vrf.tags = vrf_data.tags
-            if vrf_data.routable_flag is not None:
-                vrf.routable_flag = vrf_data.routable_flag
-            if vrf_data.is_default is not None:
-                vrf.is_default = vrf_data.is_default
-            
-            session.commit()
-            session.refresh(vrf)
-            
-            return VRFResponse(
-                vrf_id=vrf.vrf_id,
-                description=vrf.description,
-                tags=vrf.tags,
-                routable_flag=vrf.routable_flag,
-                is_default=vrf.is_default
-            )
-        finally:
-            session.close()
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    with get_db_session_with_http_error_handling(pm.db_manager) as session:
+        vrf = session.query(VRF).filter(VRF.vrf_id == vrf_id).first()
+        if not vrf:
+            raise HTTPException(status_code=404, detail="VRF not found")
+        
+        # Prevent editing auto-created VRFs
+        if is_auto_created_vrf(vrf_id):
+            raise HTTPException(status_code=403, detail="Cannot edit auto-created VRF")
+        
+        # If setting as default, unset other defaults
+        if vrf_data.is_default is True:
+            session.query(VRF).filter(VRF.vrf_id != vrf_id).update({VRF.is_default: False})
+        
+        # Update fields if provided
+        if vrf_data.description is not None:
+            vrf.description = vrf_data.description
+        if vrf_data.tags is not None:
+            vrf.tags = vrf_data.tags
+        if vrf_data.routable_flag is not None:
+            vrf.routable_flag = vrf_data.routable_flag
+        if vrf_data.is_default is not None:
+            vrf.is_default = vrf_data.is_default
+        
+        session.commit()
+        session.refresh(vrf)
+        
+        return VRFResponse(
+            vrf_id=vrf.vrf_id,
+            description=vrf.description,
+            tags=vrf.tags,
+            routable_flag=vrf.routable_flag,
+            is_default=vrf.is_default
+        )
 
 @app.delete("/api/vrfs/{vrf_id}")
 async def delete_vrf(
@@ -852,126 +833,98 @@ async def delete_vrf(
     pm: PrefixManager = Depends(get_prefix_manager)
 ):
     """Delete a VRF (only if no prefixes are using it)"""
-    try:
-        session = pm.db_manager.get_session()
-        try:
-            vrf = session.query(VRF).filter(VRF.vrf_id == vrf_id).first()
-            if not vrf:
-                raise HTTPException(status_code=404, detail="VRF not found")
-            
-            # Prevent deleting auto-created VRFs
-            if is_auto_created_vrf(vrf_id):
-                raise HTTPException(status_code=403, detail="Cannot delete auto-created VRF")
-            
-            # Check if VRF is being used by any prefixes
-            prefix_count = session.query(Prefix).filter(Prefix.vrf_id == vrf_id).count()
-            if prefix_count > 0:
+    with get_db_session_with_http_error_handling(pm.db_manager) as session:
+        vrf = session.query(VRF).filter(VRF.vrf_id == vrf_id).first()
+        if not vrf:
+            raise HTTPException(status_code=404, detail="VRF not found")
+        
+        # Prevent deleting auto-created VRFs
+        if is_auto_created_vrf(vrf_id):
+            raise HTTPException(status_code=403, detail="Cannot delete auto-created VRF")
+        
+        # Check if VRF is being used by any prefixes
+        prefix_count = session.query(Prefix).filter(Prefix.vrf_id == vrf_id).count()
+        if prefix_count > 0:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Cannot delete VRF '{vrf_id}' - it is being used by {prefix_count} prefix(es)"
+            )
+        
+        # Prevent deletion of default VRF if it's the only one
+        if vrf.is_default:
+            total_vrfs = session.query(VRF).count()
+            if total_vrfs == 1:
                 raise HTTPException(
-                    status_code=400, 
-                    detail=f"Cannot delete VRF '{vrf_id}' - it is being used by {prefix_count} prefix(es)"
+                    status_code=400,
+                    detail="Cannot delete the only VRF in the system"
                 )
-            
-            # Prevent deletion of default VRF if it's the only one
-            if vrf.is_default:
-                total_vrfs = session.query(VRF).count()
-                if total_vrfs == 1:
-                    raise HTTPException(
-                        status_code=400,
-                        detail="Cannot delete the only VRF in the system"
-                    )
-            
-            session.delete(vrf)
-            session.commit()
-            
-            return {"message": f"VRF '{vrf_id}' deleted successfully"}
-        finally:
-            session.close()
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        
+        session.delete(vrf)
+        session.commit()
+        
+        return {"message": f"VRF '{vrf_id}' deleted successfully"}
 
 # VPC endpoints
 @app.get("/api/vpcs", response_model=List[VPCResponse])
 async def get_vpcs(pm: PrefixManager = Depends(get_prefix_manager)):
     """Get all VPCs"""
-    try:
-        session = pm.db_manager.get_session()
-        try:
-            vpcs = session.query(VPC).all()
-            return [VPCResponse(
-                vpc_id=str(vpc.vpc_id),
-                description=vpc.description,
-                provider=vpc.provider,
-                provider_account_id=vpc.provider_account_id,
-                provider_vpc_id=vpc.provider_vpc_id,
-                region=vpc.region,
-                tags=vpc.tags
-            ) for vpc in vpcs]
-        finally:
-            session.close()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    with get_db_session_with_http_error_handling(pm.db_manager) as session:
+        vpcs = session.query(VPC).all()
+        return [VPCResponse(
+            vpc_id=str(vpc.vpc_id),
+            description=vpc.description,
+            provider=vpc.provider,
+            provider_account_id=vpc.provider_account_id,
+            provider_vpc_id=vpc.provider_vpc_id,
+            region=vpc.region,
+            tags=vpc.tags
+        ) for vpc in vpcs]
 
 @app.get("/api/vpcs/{vpc_id}", response_model=VPCResponse)
 async def get_vpc(vpc_id: str, pm: PrefixManager = Depends(get_prefix_manager)):
     """Get specific VPC by ID"""
-    try:
-        session = pm.db_manager.get_session()
-        try:
-            vpc = session.query(VPC).filter(VPC.vpc_id == vpc_id).first()
-            if not vpc:
-                raise HTTPException(status_code=404, detail="VPC not found")
-            
-            return VPCResponse(
-                vpc_id=str(vpc.vpc_id),
-                description=vpc.description,
-                provider=vpc.provider,
-                provider_account_id=vpc.provider_account_id,
-                provider_vpc_id=vpc.provider_vpc_id,
-                region=vpc.region,
-                tags=vpc.tags
-            )
-        finally:
-            session.close()
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    with get_db_session_with_http_error_handling(pm.db_manager) as session:
+        vpc = session.query(VPC).filter(VPC.vpc_id == vpc_id).first()
+        if not vpc:
+            raise HTTPException(status_code=404, detail="VPC not found")
+        
+        return VPCResponse(
+            vpc_id=str(vpc.vpc_id),
+            description=vpc.description,
+            provider=vpc.provider,
+            provider_account_id=vpc.provider_account_id,
+            provider_vpc_id=vpc.provider_vpc_id,
+            region=vpc.region,
+            tags=vpc.tags
+        )
 
 @app.get("/api/vpcs/{vpc_id}/associations")
 async def get_vpc_associations(vpc_id: str, pm: PrefixManager = Depends(get_prefix_manager)):
     """Get all prefix associations for a specific VPC"""
-    try:
-        session = pm.db_manager.get_session()
-        try:
-            from models import VPCPrefixAssociation, Prefix
-            
-            # Get all associations for this VPC with prefix details
-            associations = session.query(VPCPrefixAssociation, Prefix).join(
-                Prefix, VPCPrefixAssociation.parent_prefix_id == Prefix.prefix_id
-            ).filter(
-                VPCPrefixAssociation.vpc_id == vpc_id
-            ).all()
-            
-            result = []
-            for association, prefix in associations:
-                result.append({
-                    "association_id": str(association.association_id),
-                    "vpc_prefix_cidr": str(association.vpc_prefix_cidr),
-                    "routable": association.routable,
-                    "prefix_id": prefix.prefix_id,
-                    "prefix_cidr": str(prefix.cidr),
-                    "prefix_vrf_id": prefix.vrf_id,
-                    "prefix_tags": prefix.tags,
-                    "prefix_source": prefix.source
-                })
-            
-            return result
-        finally:
-            session.close()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    with get_db_session_with_http_error_handling(pm.db_manager) as session:
+        from models import VPCPrefixAssociation, Prefix
+        
+        # Get all associations for this VPC with prefix details
+        associations = session.query(VPCPrefixAssociation, Prefix).join(
+            Prefix, VPCPrefixAssociation.parent_prefix_id == Prefix.prefix_id
+        ).filter(
+            VPCPrefixAssociation.vpc_id == vpc_id
+        ).all()
+        
+        result = []
+        for association, prefix in associations:
+            result.append({
+                "association_id": str(association.association_id),
+                "vpc_prefix_cidr": str(association.vpc_prefix_cidr),
+                "routable": association.routable,
+                "prefix_id": prefix.prefix_id,
+                "prefix_cidr": str(prefix.cidr),
+                "prefix_vrf_id": prefix.vrf_id,
+                "prefix_tags": prefix.tags,
+                "prefix_source": prefix.source
+            })
+        
+        return result
 
 @app.post("/api/vpcs", response_model=VPCResponse)
 async def create_vpc(
@@ -1033,42 +986,34 @@ async def delete_vpc(
     pm: PrefixManager = Depends(get_prefix_manager)
 ):
     """Delete a VPC (only if no prefixes or associations are using it)"""
-    try:
-        session = pm.db_manager.get_session()
-        try:
-            vpc = session.query(VPC).filter(VPC.vpc_id == uuid.UUID(vpc_id)).first()
-            if not vpc:
-                raise HTTPException(status_code=404, detail="VPC not found")
-            
-            # Check if VPC is being used by any prefixes
-            prefix_count = session.query(Prefix).filter(Prefix.vpc_id == uuid.UUID(vpc_id)).count()
-            if prefix_count > 0:
-                raise HTTPException(
-                    status_code=400, 
-                    detail=f"Cannot delete VPC '{vpc.provider_vpc_id}' - it is being used by {prefix_count} prefix(es)"
-                )
-            
-            # Check if VPC has any associations
-            from models import VPCPrefixAssociation
-            association_count = session.query(VPCPrefixAssociation).filter(
-                VPCPrefixAssociation.vpc_id == uuid.UUID(vpc_id)
-            ).count()
-            if association_count > 0:
-                raise HTTPException(
-                    status_code=400, 
-                    detail=f"Cannot delete VPC '{vpc.provider_vpc_id}' - it has {association_count} prefix association(s)"
-                )
-            
-            session.delete(vpc)
-            session.commit()
-            
-            return {"message": f"VPC '{vpc.provider_vpc_id}' deleted successfully"}
-        finally:
-            session.close()
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    with get_db_session_with_http_error_handling(pm.db_manager) as session:
+        vpc = session.query(VPC).filter(VPC.vpc_id == uuid.UUID(vpc_id)).first()
+        if not vpc:
+            raise HTTPException(status_code=404, detail="VPC not found")
+        
+        # Check if VPC is being used by any prefixes
+        prefix_count = session.query(Prefix).filter(Prefix.vpc_id == uuid.UUID(vpc_id)).count()
+        if prefix_count > 0:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Cannot delete VPC '{vpc.provider_vpc_id}' - it is being used by {prefix_count} prefix(es)"
+            )
+        
+        # Check if VPC has any associations
+        from models import VPCPrefixAssociation
+        association_count = session.query(VPCPrefixAssociation).filter(
+            VPCPrefixAssociation.vpc_id == uuid.UUID(vpc_id)
+        ).count()
+        if association_count > 0:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Cannot delete VPC '{vpc.provider_vpc_id}' - it has {association_count} prefix association(s)"
+            )
+        
+        session.delete(vpc)
+        session.commit()
+        
+        return {"message": f"VPC '{vpc.provider_vpc_id}' deleted successfully"}
 
 @app.get("/api/prefixes/{prefix_id}/can-associate-vpc")
 async def can_associate_vpc(
@@ -1090,8 +1035,7 @@ async def can_associate_vpc(
         
         # Rule 2: Routable prefixes can only associate to one VPC ID
         if prefix.routable:
-            session = pm.db_manager.get_session()
-            try:
+            with get_db_session_with_http_error_handling(pm.db_manager) as session:
                 from models import VPCPrefixAssociation
                 existing_association = session.query(VPCPrefixAssociation).filter(
                     VPCPrefixAssociation.parent_prefix_id == prefix_id
@@ -1103,8 +1047,6 @@ async def can_associate_vpc(
                         "reason": "Routable prefixes can only associate to one VPC ID. This prefix is already associated.",
                         "existing_vpc_id": str(existing_association.vpc_id)
                     }
-            finally:
-                session.close()
         
         return {
             "can_associate": True,
@@ -1120,36 +1062,30 @@ async def get_prefix_vpc_associations(
     pm: PrefixManager = Depends(get_prefix_manager)
 ):
     """Get all VPC associations for a specific prefix"""
-    try:
-        session = pm.db_manager.get_session()
-        try:
-            from models import VPCPrefixAssociation, VPC
-            
-            # Get all associations for this prefix with VPC details
-            associations = session.query(VPCPrefixAssociation, VPC).join(
-                VPC, VPCPrefixAssociation.vpc_id == VPC.vpc_id
-            ).filter(
-                VPCPrefixAssociation.parent_prefix_id == prefix_id
-            ).all()
-            
-            result = []
-            for association, vpc in associations:
-                result.append({
-                    "association_id": str(association.association_id),
-                    "vpc_id": str(association.vpc_id),
-                    "vpc_prefix_cidr": str(association.vpc_prefix_cidr),
-                    "routable": association.routable,
-                    "provider_vpc_id": vpc.provider_vpc_id,
-                    "provider": vpc.provider,
-                    "description": vpc.description,
-                    "region": vpc.region
-                })
-            
-            return result
-        finally:
-            session.close()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    with get_db_session_with_http_error_handling(pm.db_manager) as session:
+        from models import VPCPrefixAssociation, VPC
+        
+        # Get all associations for this prefix with VPC details
+        associations = session.query(VPCPrefixAssociation, VPC).join(
+            VPC, VPCPrefixAssociation.vpc_id == VPC.vpc_id
+        ).filter(
+            VPCPrefixAssociation.parent_prefix_id == prefix_id
+        ).all()
+        
+        result = []
+        for association, vpc in associations:
+            result.append({
+                "association_id": str(association.association_id),
+                "vpc_id": str(association.vpc_id),
+                "vpc_prefix_cidr": str(association.vpc_prefix_cidr),
+                "routable": association.routable,
+                "provider_vpc_id": vpc.provider_vpc_id,
+                "provider": vpc.provider,
+                "description": vpc.description,
+                "region": vpc.region
+            })
+        
+        return result
 
 @app.delete("/api/vpc-associations/{association_id}")
 async def remove_vpc_association(
@@ -1157,53 +1093,45 @@ async def remove_vpc_association(
     pm: PrefixManager = Depends(get_prefix_manager)
 ):
     """Remove a VPC association and update prefix tags"""
-    try:
-        session = pm.db_manager.get_session()
-        try:
-            from models import VPCPrefixAssociation, VPC
-            
-            # Get the association to be deleted
-            association = session.query(VPCPrefixAssociation).filter(
-                VPCPrefixAssociation.association_id == uuid.UUID(association_id)
-            ).first()
-            
-            if not association:
-                raise HTTPException(status_code=404, detail="VPC association not found")
-            
-            parent_prefix_id = association.parent_prefix_id
-            vpc_id = association.vpc_id
-            
-            # Get the VPC to get provider_vpc_id
-            vpc = session.query(VPC).filter(VPC.vpc_id == vpc_id).first()
-            
-            # Delete the association
-            session.delete(association)
-            session.commit()
-            
-            # Update prefix tags - remove the associated_vpc tag if this was the only association
-            remaining_associations = session.query(VPCPrefixAssociation).filter(
-                VPCPrefixAssociation.parent_prefix_id == parent_prefix_id
-            ).count()
-            
-            if remaining_associations == 0:
-                # Remove the associated_vpc tag completely
-                prefix = pm.get_prefix_by_id(parent_prefix_id)
-                if prefix and prefix.tags and 'associated_vpc' in prefix.tags:
-                    current_tags = prefix.tags.copy()
-                    del current_tags['associated_vpc']
-                    pm.update_manual_prefix(parent_prefix_id, tags=current_tags)
-            
-            return {
-                "message": "VPC association removed successfully",
-                "provider_vpc_id": vpc.provider_vpc_id if vpc else None,
-                "tags_updated": remaining_associations == 0
-            }
-        finally:
-            session.close()
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    with get_db_session_with_http_error_handling(pm.db_manager) as session:
+        from models import VPCPrefixAssociation, VPC
+        
+        # Get the association to be deleted
+        association = session.query(VPCPrefixAssociation).filter(
+            VPCPrefixAssociation.association_id == uuid.UUID(association_id)
+        ).first()
+        
+        if not association:
+            raise HTTPException(status_code=404, detail="VPC association not found")
+        
+        parent_prefix_id = association.parent_prefix_id
+        vpc_id = association.vpc_id
+        
+        # Get the VPC to get provider_vpc_id
+        vpc = session.query(VPC).filter(VPC.vpc_id == vpc_id).first()
+        
+        # Delete the association
+        session.delete(association)
+        session.commit()
+        
+        # Update prefix tags - remove the associated_vpc tag if this was the only association
+        remaining_associations = session.query(VPCPrefixAssociation).filter(
+            VPCPrefixAssociation.parent_prefix_id == parent_prefix_id
+        ).count()
+        
+        if remaining_associations == 0:
+            # Remove the associated_vpc tag completely
+            prefix = pm.get_prefix_by_id(parent_prefix_id)
+            if prefix and prefix.tags and 'associated_vpc' in prefix.tags:
+                current_tags = prefix.tags.copy()
+                del current_tags['associated_vpc']
+                pm.update_manual_prefix(parent_prefix_id, tags=current_tags)
+        
+        return {
+            "message": "VPC association removed successfully",
+            "provider_vpc_id": vpc.provider_vpc_id if vpc else None,
+            "tags_updated": remaining_associations == 0
+        }
 
 @app.post("/api/vpc-associations")
 async def create_vpc_association(
@@ -1211,83 +1139,72 @@ async def create_vpc_association(
     pm: PrefixManager = Depends(get_prefix_manager)
 ):
     """Associate a VPC with a prefix with validation rules"""
-    try:
-        # Get the parent prefix to validate rules
-        parent_prefix = pm.get_prefix_by_id(association_data.parent_prefix_id)
-        if not parent_prefix:
-            raise HTTPException(status_code=404, detail="Parent prefix not found")
+    # Get the parent prefix to validate rules
+    parent_prefix = pm.get_prefix_by_id(association_data.parent_prefix_id)
+    if not parent_prefix:
+        raise HTTPException(status_code=404, detail="Parent prefix not found")
+    
+    # Rule 1: Prefixes whose source is cloud VPC cannot associate to VPC
+    if parent_prefix.source == 'vpc':
+        raise HTTPException(
+            status_code=400, 
+            detail="Prefixes whose source is cloud VPC cannot associate to VPC"
+        )
+    
+    # Check for existing associations
+    with get_db_session_with_http_error_handling(pm.db_manager) as session:
+        from models import VPCPrefixAssociation
         
-        # Rule 1: Prefixes whose source is cloud VPC cannot associate to VPC
-        if parent_prefix.source == 'vpc':
+        # Check if this exact VPC is already associated (prevent duplicates)
+        duplicate_association = session.query(VPCPrefixAssociation).filter(
+            VPCPrefixAssociation.parent_prefix_id == association_data.parent_prefix_id,
+            VPCPrefixAssociation.vpc_id == uuid.UUID(association_data.vpc_id)
+        ).first()
+        
+        if duplicate_association:
             raise HTTPException(
-                status_code=400, 
-                detail="Prefixes whose source is cloud VPC cannot associate to VPC"
+                status_code=400,
+                detail="This VPC is already associated with this prefix."
             )
         
-        # Check for existing associations
-        session = pm.db_manager.get_session()
-        try:
-            from models import VPCPrefixAssociation
-            
-            # Check if this exact VPC is already associated (prevent duplicates)
-            duplicate_association = session.query(VPCPrefixAssociation).filter(
-                VPCPrefixAssociation.parent_prefix_id == association_data.parent_prefix_id,
-                VPCPrefixAssociation.vpc_id == uuid.UUID(association_data.vpc_id)
+        # Rule 2: Routable prefixes can only associate to one VPC ID
+        if parent_prefix.routable:
+            existing_association = session.query(VPCPrefixAssociation).filter(
+                VPCPrefixAssociation.parent_prefix_id == association_data.parent_prefix_id
             ).first()
             
-            if duplicate_association:
+            if existing_association:
                 raise HTTPException(
                     status_code=400,
-                    detail="This VPC is already associated with this prefix."
+                    detail="Routable prefixes can only associate to one VPC ID. This prefix is already associated."
                 )
-            
-            # Rule 2: Routable prefixes can only associate to one VPC ID
-            if parent_prefix.routable:
-                existing_association = session.query(VPCPrefixAssociation).filter(
-                    VPCPrefixAssociation.parent_prefix_id == association_data.parent_prefix_id
-                ).first()
-                
-                if existing_association:
-                    raise HTTPException(
-                        status_code=400,
-                        detail="Routable prefixes can only associate to one VPC ID. This prefix is already associated."
-                    )
-        finally:
-            session.close()
+    
+    # Create the association
+    association = pm.associate_vpc_with_prefix(
+        vpc_id=uuid.UUID(association_data.vpc_id),
+        vpc_prefix_cidr=association_data.vpc_prefix_cidr,
+        routable=association_data.routable,
+        parent_prefix_id=association_data.parent_prefix_id
+    )
+    
+    # Rule 4: Add associated_vpc tag to the prefix using provider_vpc_id
+    # Get the VPC to retrieve the provider_vpc_id
+    with get_db_session_with_http_error_handling(pm.db_manager) as session:
+        vpc = session.query(VPC).filter(VPC.vpc_id == uuid.UUID(association_data.vpc_id)).first()
+        if not vpc:
+            raise HTTPException(status_code=404, detail="VPC not found")
         
-        # Create the association
-        association = pm.associate_vpc_with_prefix(
-            vpc_id=uuid.UUID(association_data.vpc_id),
-            vpc_prefix_cidr=association_data.vpc_prefix_cidr,
-            routable=association_data.routable,
-            parent_prefix_id=association_data.parent_prefix_id
-        )
+        current_tags = parent_prefix.tags.copy() if parent_prefix.tags else {}
+        current_tags['associated_vpc'] = vpc.provider_vpc_id
         
-        # Rule 4: Add associated_vpc tag to the prefix using provider_vpc_id
-        # Get the VPC to retrieve the provider_vpc_id
-        session = pm.db_manager.get_session()
-        try:
-            vpc = session.query(VPC).filter(VPC.vpc_id == uuid.UUID(association_data.vpc_id)).first()
-            if not vpc:
-                raise HTTPException(status_code=404, detail="VPC not found")
-            
-            current_tags = parent_prefix.tags.copy() if parent_prefix.tags else {}
-            current_tags['associated_vpc'] = vpc.provider_vpc_id
-            
-            # Update the prefix with the new tag
-            pm.update_manual_prefix(association_data.parent_prefix_id, tags=current_tags)
-        finally:
-            session.close()
-        
-        return {
-            "association_id": str(association.association_id), 
-            "message": "VPC associated successfully",
-            "tags_updated": True
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        # Update the prefix with the new tag
+        pm.update_manual_prefix(association_data.parent_prefix_id, tags=current_tags)
+    
+    return {
+        "association_id": str(association.association_id), 
+        "message": "VPC associated successfully",
+        "tags_updated": True
+    }
 
 # Backup/Restore endpoints (Internal Docker storage)
 @app.post("/api/backup")
@@ -1509,9 +1426,8 @@ async def cleanup_expired_idempotency_records():
 @app.get("/health")
 async def health_check():
     try:
-        session = db_manager.get_session()
-        session.execute("SELECT 1")
-        session.close()
+        with get_db_session_with_http_error_handling(db_manager) as session:
+            session.execute(text("SELECT 1"))
         
         # Check idempotency service
         idempotency_stats = idempotency_service.get_record_stats()
