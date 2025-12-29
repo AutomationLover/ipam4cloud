@@ -60,15 +60,19 @@ class IdempotencyService:
         return hashlib.sha256(sorted_params.encode()).hexdigest()
     
     def _serialize_for_storage(self, data: Any) -> Dict[str, Any]:
-        """Serialize data for JSON storage, handling special types"""
-        if hasattr(data, 'dict'):  # Pydantic model
-            return data.dict()
+        """Serialize data for JSON storage, handling special types including datetime"""
+        if isinstance(data, datetime):
+            return data.isoformat()
+        elif isinstance(data, dict):
+            return {k: self._serialize_for_storage(v) for k, v in data.items()}
+        elif isinstance(data, list):
+            return [self._serialize_for_storage(item) for item in data]
+        elif hasattr(data, 'dict'):  # Pydantic model
+            return self._serialize_for_storage(data.dict())
         elif hasattr(data, '__dict__'):  # Regular object
-            return {k: v for k, v in data.__dict__.items() if not k.startswith('_')}
-        elif isinstance(data, (str, int, float, bool, list, dict, type(None))):
-            return data
+            return self._serialize_for_storage({k: v for k, v in data.__dict__.items() if not k.startswith('_')})
         else:
-            return str(data)
+            return data
     
     def check_idempotency(
         self,
