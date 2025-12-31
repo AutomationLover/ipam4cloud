@@ -111,9 +111,14 @@ def load_manual_prefixes_from_json(prefix_manager: PrefixManager, data_loader: J
         
         print(f"\nLoading {len(manual_prefixes)} manual prefixes...")
         
+        # First pass: Validate all prefixes (structure and CIDR format)
+        print("\n📋 Validating prefix data...")
         for prefix_data in manual_prefixes:
+            # Basic validation (structure and CIDR format)
             data_loader.validate_manual_prefix(prefix_data)
-            
+        
+        # Second pass: Create prefixes and validate parent-child relationships
+        for prefix_data in manual_prefixes:
             print(f"\nCreating prefix: {prefix_data['cidr']} in VRF {prefix_data['vrf_id']}")
             
             # Resolve parent_prefix_id if it's a reference to another prefix
@@ -124,6 +129,40 @@ def load_manual_prefixes_from_json(prefix_manager: PrefixManager, data_loader: J
             elif parent_prefix_id in created_prefixes:
                 # It's a reference to a previously created prefix
                 parent_prefix_id = created_prefixes[parent_prefix_id].prefix_id
+            
+            # Validate parent-child relationship if parent exists
+            if parent_prefix_id:
+                # Find parent in created_prefixes
+                parent_prefix = None
+                # Check by prefix_id first
+                for created_prefix in created_prefixes.values():
+                    if created_prefix.prefix_id == parent_prefix_id:
+                        parent_prefix = created_prefix
+                        break
+                # If not found, check if parent_prefix_id is a CIDR that was created
+                if not parent_prefix and parent_prefix_id in created_prefixes:
+                    parent_prefix = created_prefixes[parent_prefix_id]
+                
+                if parent_prefix:
+                    # Validate parent-child relationship
+                    try:
+                        import ipaddress
+                        child_network = ipaddress.ip_network(prefix_data['cidr'], strict=False)
+                        parent_network = ipaddress.ip_network(str(parent_prefix.cidr), strict=False)
+                        
+                        if not child_network.subnet_of(parent_network):
+                            raise ValueError(
+                                f"❌ Validation Error: Child prefix {prefix_data['cidr']} is NOT within parent {parent_prefix.cidr}.\n"
+                                f"   Parent {parent_prefix.cidr} covers: {parent_network.network_address} to {parent_network.broadcast_address}\n"
+                                f"   Child {prefix_data['cidr']} starts at: {child_network.network_address}\n"
+                                f"   This will fail at database level. Please fix the JSON file."
+                            )
+                    except ValueError as e:
+                        # Re-raise validation errors
+                        raise e
+                    except Exception as e:
+                        # Log but don't fail on other errors during validation
+                        print(f"   ⚠️  Warning: Could not validate parent-child relationship: {e}")
             
             prefix = safe_create_prefix(
                 prefix_manager,

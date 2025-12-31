@@ -157,7 +157,7 @@
     },
     {
       "vrf_id": "prod-vrf",
-      "cidr": "2001:db8:3000::/56",
+      "cidr": "2001:db8:1000:100::/56",
       "parent_prefix_id": "2001:db8:1000::/48",
       "tags": {
         "purpose": "subnet_allocation",
@@ -167,6 +167,69 @@
       },
       "routable": true,
       "description": "IPv6 subnet allocation example"
+    },
+    {
+      "vrf_id": "public-vrf",
+      "cidr": "13.52.5.0/25",
+      "parent_prefix_id": null,
+      "tags": {
+        "purpose": "public_ip_block",
+        "description": "Public IPv4 address block owned by company",
+        "env": "prod",
+        "owner": "network-team",
+        "cloud": "gcp"
+      },
+      "routable": true,
+      "vpc_children_type_flag": false,
+      "description": "Public IP block for GCP VPC allocations - can be subdivided into /28 blocks"
+    },
+    {
+      "vrf_id": "public-vrf",
+      "cidr": "13.52.5.0/28",
+      "parent_prefix_id": "13.52.5.0/25",
+      "tags": {
+        "purpose": "public_ip_allocation",
+        "description": "Public IP allocation for GCP production VPC",
+        "env": "prod",
+        "cloud": "gcp",
+        "gcp_vpc_id": "dev-network",
+        "assigned_to": "GCP Production VPC"
+      },
+      "routable": true,
+      "vpc_children_type_flag": true,
+      "description": "Public IP /28 block allocated to GCP production VPC"
+    },
+    {
+      "vrf_id": "public-vrf",
+      "cidr": "13.52.5.16/28",
+      "parent_prefix_id": "13.52.5.0/25",
+      "tags": {
+        "purpose": "public_ip_allocation",
+        "description": "Public IP allocation for GCP development VPC",
+        "env": "dev",
+        "cloud": "gcp",
+        "gcp_vpc_id": "dev-network",
+        "assigned_to": "GCP Development VPC"
+      },
+      "routable": true,
+      "vpc_children_type_flag": true,
+      "description": "Public IP /28 block allocated to GCP development VPC"
+    },
+    {
+      "vrf_id": "public-vrf",
+      "cidr": "13.52.5.32/28",
+      "parent_prefix_id": "13.52.5.0/25",
+      "tags": {
+        "purpose": "public_ip_allocation",
+        "description": "Public IP allocation for GCP test VPC",
+        "env": "test",
+        "cloud": "gcp",
+        "gcp_vpc_id": "dev-network",
+        "assigned_to": "GCP Test VPC"
+      },
+      "routable": true,
+      "vpc_children_type_flag": true,
+      "description": "Public IP /28 block allocated to GCP test VPC"
     }
   ]
 }

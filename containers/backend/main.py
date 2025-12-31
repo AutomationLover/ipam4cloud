@@ -703,7 +703,16 @@ async def can_create_child_prefix(
     prefix_id: str,
     pm: PrefixManager = Depends(get_prefix_manager)
 ):
-    """Check if a child prefix can be created under this prefix"""
+    """
+    Check if a child prefix can be created under this prefix.
+    
+    Rules:
+    1. VPC-sourced prefixes cannot have child prefixes
+    2. Manual prefixes with vpc_children_type_flag=True cannot have manual child prefixes (children are VPC subnets only)
+    3. Manual prefixes with vpc_children_type_flag=False can have manual child prefixes (can be subdivided)
+       This applies to all manual prefixes regardless of VPC association, allowing public IP blocks 
+       (e.g., /26 in public-vrf) to be subdivided into smaller allocations (e.g., /28) for VPCs or projects.
+    """
     try:
         prefix = pm.get_prefix_by_id(prefix_id)
         if not prefix:
@@ -713,14 +722,20 @@ async def can_create_child_prefix(
         if prefix.source == 'vpc':
             return {"can_create_child": False, "reason": "VPC-sourced prefixes cannot have child prefixes"}
         
-        # Rule 2: Manual prefixes associated with VPC cannot have child prefixes
-        if prefix.source == 'manual':
-            is_associated = pm.is_prefix_associated_with_vpc(prefix_id)
-            if is_associated:
-                return {"can_create_child": False, "reason": "Manual prefixes associated with VPC cannot have child prefixes"}
+        # Rule 2: Check vpc_children_type_flag
+        # If True, this prefix's children are VPC subnets only (final allocated), cannot have manual child prefixes
+        if prefix.vpc_children_type_flag:
+            return {
+                "can_create_child": False, 
+                "reason": "Prefix has vpc_children_type_flag=True, meaning its children are VPC subnets only. Cannot create manual child prefixes."
+            }
         
-        # Rule 3: Manual prefixes not associated with VPC can have child prefixes
-        return {"can_create_child": True, "reason": "Manual prefix not associated with VPC"}
+        # Rule 3: Manual prefixes with vpc_children_type_flag=False can have child prefixes
+        # This allows subdivision of prefixes including public IP blocks (e.g., /26 -> /28)
+        return {
+            "can_create_child": True, 
+            "reason": "Manual prefix with vpc_children_type_flag=False can have child prefixes (allows subdivision)"
+        }
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
