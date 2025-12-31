@@ -110,7 +110,7 @@ class VPCAssociation(BaseModel):
 
 class SubnetAllocationRequest(BaseModel):
     vrf_id: str
-    subnet_size: int = Field(..., ge=1, le=32, description="Subnet mask length (e.g., 24 for /24)")
+    subnet_size: int = Field(..., ge=1, le=128, description="Subnet mask length (e.g., 24 for /24 IPv4, 64 for /64 IPv6)")
     tags: Optional[Dict[str, Any]] = Field(default={}, description="Tags to match parent prefixes (strict match)")
     routable: Optional[bool] = Field(default=True, description="Whether the allocated subnet should be routable")
     parent_prefix_id: Optional[str] = Field(default=None, description="Optional specific parent prefix ID")
@@ -633,15 +633,17 @@ async def allocate_subnet(
 @app.get("/api/prefixes/{prefix_id}/available-subnets")
 async def get_available_subnets(
     prefix_id: str,
-    subnet_size: int = Query(..., ge=1, le=32, description="Subnet mask length (e.g., 24 for /24)"),
+    subnet_size: int = Query(..., ge=1, le=128, description="Subnet mask length (e.g., 24 for /24 IPv4, 64 for /64 IPv6)"),
     pm: PrefixManager = Depends(get_prefix_manager)
 ):
     """
     Get all available subnets of specified size within a parent prefix.
     
     This endpoint helps users preview what subnets are available before allocation.
+    Supports both IPv4 (1-32) and IPv6 (1-128) subnet sizes.
     """
     try:
+        import ipaddress
         prefix = pm.get_prefix_by_id(prefix_id)
         if not prefix:
             raise HTTPException(status_code=404, detail="Prefix not found")
@@ -651,13 +653,20 @@ async def get_available_subnets(
         
         available_subnets = pm.calculate_available_subnets(prefix, subnet_size)
         
+        # Detect IP version for total_possible calculation
+        parent_network = ipaddress.ip_network(str(prefix.cidr), strict=False)
+        parent_mask = parent_network.prefixlen
+        address_bits = parent_network.max_prefixlen  # 32 for IPv4, 128 for IPv6
+        total_possible = 2 ** (subnet_size - parent_mask) if subnet_size >= parent_mask else 0
+        
         return {
             "parent_prefix_id": prefix_id,
             "parent_cidr": str(prefix.cidr),
             "subnet_size": subnet_size,
             "available_subnets": available_subnets,
             "available_count": len(available_subnets),
-            "total_possible": 2 ** (subnet_size - int(str(prefix.cidr).split('/')[1]))
+            "total_possible": total_possible,
+            "ip_version": parent_network.version  # 4 or 6
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

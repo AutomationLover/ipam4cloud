@@ -373,7 +373,7 @@
               </el-select>
             </el-form-item>
             <el-form-item label="CIDR" prop="cidr">
-              <el-input v-model="newPrefix.cidr" placeholder="e.g., 10.0.0.0/24" />
+              <el-input v-model="newPrefix.cidr" placeholder="e.g., 10.0.0.0/24 or 2001:db8::/32" />
             </el-form-item>
             <el-form-item label="Parent Prefix">
               <el-select 
@@ -439,14 +439,28 @@
             
             <el-form-item label="Subnet Size" prop="subnet_size">
               <el-select v-model="subnetAllocation.subnet_size" placeholder="Select subnet size" @change="updateAllocationPreview">
-                <el-option label="/16 (65,536 IPs)" :value="16" />
-                <el-option label="/20 (4,096 IPs)" :value="20" />
-                <el-option label="/24 (256 IPs)" :value="24" />
-                <el-option label="/25 (128 IPs)" :value="25" />
-                <el-option label="/26 (64 IPs)" :value="26" />
-                <el-option label="/27 (32 IPs)" :value="27" />
-                <el-option label="/28 (16 IPs)" :value="28" />
-                <el-option label="/29 (8 IPs)" :value="29" />
+                <!-- IPv4 options -->
+                <el-option-group label="IPv4 Subnet Sizes">
+                  <el-option label="/16 (65,536 IPs)" :value="16" />
+                  <el-option label="/20 (4,096 IPs)" :value="20" />
+                  <el-option label="/24 (256 IPs)" :value="24" />
+                  <el-option label="/25 (128 IPs)" :value="25" />
+                  <el-option label="/26 (64 IPs)" :value="26" />
+                  <el-option label="/27 (32 IPs)" :value="27" />
+                  <el-option label="/28 (16 IPs)" :value="28" />
+                  <el-option label="/29 (8 IPs)" :value="29" />
+                </el-option-group>
+                <!-- IPv6 options -->
+                <el-option-group label="IPv6 Subnet Sizes">
+                  <el-option label="/32 (IPv6 /32)" :value="32" />
+                  <el-option label="/40 (IPv6 /40)" :value="40" />
+                  <el-option label="/44 (IPv6 /44)" :value="44" />
+                  <el-option label="/48 (IPv6 /48)" :value="48" />
+                  <el-option label="/52 (IPv6 /52)" :value="52" />
+                  <el-option label="/56 (IPv6 /56)" :value="56" />
+                  <el-option label="/60 (IPv6 /60)" :value="60" />
+                  <el-option label="/64 (IPv6 /64)" :value="64" />
+                </el-option-group>
                 <el-option label="/30 (4 IPs)" :value="30" />
               </el-select>
             </el-form-item>
@@ -645,7 +659,7 @@
           </el-select>
         </el-form-item>
         <el-form-item label="VPC CIDR" prop="vpc_prefix_cidr">
-          <el-input v-model="vpcAssociation.vpc_prefix_cidr" placeholder="e.g., 10.0.0.0/16" />
+          <el-input v-model="vpcAssociation.vpc_prefix_cidr" placeholder="e.g., 10.0.0.0/16 or 2001:db8::/48" />
         </el-form-item>
         <el-form-item label="Routable">
           <el-switch v-model="vpcAssociation.routable" />
@@ -1437,8 +1451,13 @@ export default {
       }
     },
     
+    isIPv6(cidr) {
+      // Check if CIDR is IPv6 (contains colons or uses IPv6 format)
+      return cidr.includes(':') || /^[0-9a-fA-F:]+/.test(cidr.split('/')[0])
+    },
+    
     isSubnet(childCidr, parentCidr) {
-      // Simple CIDR containment check
+      // CIDR containment check supporting both IPv4 and IPv6
       try {
         const [childNetwork, childMask] = childCidr.split('/')
         const [parentNetwork, parentMask] = parentCidr.split('/')
@@ -1451,22 +1470,38 @@ export default {
           return false
         }
         
-        // Convert IPs to numbers for comparison
-        const childIp = this.ipToNumber(childNetwork)
-        const parentIp = this.ipToNumber(parentNetwork)
+        // Detect IP version
+        const isIPv6Child = this.isIPv6(childCidr)
+        const isIPv6Parent = this.isIPv6(parentCidr)
         
-        // Calculate network addresses
-        const parentNetworkSize = Math.pow(2, 32 - parentMaskNum)
-        const parentNetworkStart = Math.floor(parentIp / parentNetworkSize) * parentNetworkSize
-        const parentNetworkEnd = parentNetworkStart + parentNetworkSize - 1
+        // Both must be same IP version
+        if (isIPv6Child !== isIPv6Parent) {
+          return false
+        }
         
-        return childIp >= parentNetworkStart && childIp <= parentNetworkEnd
+        if (isIPv6Child) {
+          // IPv6 containment check - rely on backend validation for accuracy
+          // Frontend just checks mask length relationship
+          return childMaskNum >= parentMaskNum
+        } else {
+          // IPv4 containment check
+          const childIp = this.ipToNumber(childNetwork)
+          const parentIp = this.ipToNumber(parentNetwork)
+          
+          // Calculate network addresses
+          const parentNetworkSize = Math.pow(2, 32 - parentMaskNum)
+          const parentNetworkStart = Math.floor(parentIp / parentNetworkSize) * parentNetworkSize
+          const parentNetworkEnd = parentNetworkStart + parentNetworkSize - 1
+          
+          return childIp >= parentNetworkStart && childIp <= parentNetworkEnd
+        }
       } catch (error) {
         return false
       }
     },
     
     ipToNumber(ip) {
+      // IPv4 address to number conversion
       return ip.split('.').reduce((acc, octet) => (acc << 8) + parseInt(octet), 0) >>> 0
     },
 

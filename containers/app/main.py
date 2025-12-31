@@ -381,6 +381,56 @@ def demo_space_analysis(prefix_manager: PrefixManager):
         name = prefix.tags.get('Name', 'unnamed')
         print(f"     - {prefix.cidr} ({name}) - Service: {service}")
 
+def demo_ipv6_support(prefix_manager: PrefixManager):
+    """
+    Demonstrate IPv6 support functionality
+    """
+    print("\n" + "="*60)
+    print("DEMO: IPv6 Support")
+    print("="*60)
+    
+    # Query IPv6 prefixes
+    print("\n1. Querying IPv6 prefixes:")
+    all_prefixes = prefix_manager.filter_prefixes(vrf_id='prod-vrf')
+    ipv6_prefixes = [p for p in all_prefixes if ':' in str(p.cidr)]
+    
+    if ipv6_prefixes:
+        print(f"   Found {len(ipv6_prefixes)} IPv6 prefixes:")
+        for prefix in ipv6_prefixes:
+            ip_version = prefix.tags.get('ip_version', '6')
+            print(f"     - {prefix.cidr} (IPv{ip_version}) - {prefix.prefix_id}")
+            print(f"       Tags: {prefix.tags}")
+    else:
+        print("   No IPv6 prefixes found")
+    
+    # Test IPv6 subnet allocation
+    print("\n2. Testing IPv6 subnet allocation:")
+    ipv6_parent = prefix_manager.query_prefix_by_cidr('prod-vrf', '2001:db8::/32')
+    if ipv6_parent:
+        print(f"   Parent prefix: {ipv6_parent.cidr}")
+        try:
+            # Calculate available /48 subnets
+            available_subnets = prefix_manager.calculate_available_subnets(ipv6_parent, 48)
+            print(f"   Available /48 subnets: {len(available_subnets)}")
+            if available_subnets:
+                print(f"   Example available subnet: {available_subnets[0]}")
+        except Exception as e:
+            print(f"   Error calculating IPv6 subnets: {e}")
+    else:
+        print("   IPv6 parent prefix not found")
+    
+    # Show IPv6 public IPs
+    print("\n3. IPv6 Public IP addresses:")
+    public_prefixes = prefix_manager.filter_prefixes(vrf_id='public-vrf')
+    ipv6_public_ips = [p for p in public_prefixes if ':' in str(p.cidr)]
+    if ipv6_public_ips:
+        print(f"   Found {len(ipv6_public_ips)} IPv6 public IPs:")
+        for prefix in ipv6_public_ips:
+            name = prefix.tags.get('Name', 'unnamed')
+            print(f"     - {prefix.cidr} ({name})")
+    else:
+        print("   No IPv6 public IPs found")
+
 def main():
     """Main demo function implementing all user stories with JSON configuration"""
     print("🚀 Starting Prefix Management System with JSON Configuration")
@@ -424,6 +474,9 @@ def main():
             demo_space_analysis(prefix_manager)
         else:
             print("⚠️  Skipping client queries demo - VPCs not found")
+        
+        # Step 6: Demonstrate IPv6 support
+        demo_ipv6_support(prefix_manager)
         
         print("\n" + "="*60)
         print("✅ JSON Configuration Loading completed successfully!")

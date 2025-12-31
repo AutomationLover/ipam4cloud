@@ -46,7 +46,7 @@
         "purpose": "vpc_reservation",
         "description": "Reserved for ipam4cloud-test-vpc-1",
         "env": "test",
-        "aws_vpc_id": "vpc-0bfab826e7f965381"
+        "aws_vpc_id": "vpc-0123456789abcdef0"
       },
       "routable": true,
       "vpc_children_type_flag": true,
@@ -60,7 +60,7 @@
         "purpose": "vpc_reservation",
         "description": "Reserved for ipam4cloud-test-vpc-2",
         "env": "test",
-        "aws_vpc_id": "vpc-017ac1c51153a77ea"
+        "aws_vpc_id": "vpc-0123456789abcdef1"
       },
       "routable": false,
       "vpc_children_type_flag": true,
@@ -115,6 +115,58 @@
       },
       "routable": true,
       "description": "Reserved Class B space for future expansion"
+    },
+    {
+      "vrf_id": "prod-vrf",
+      "cidr": "2001:db8::/32",
+      "parent_prefix_id": null,
+      "tags": {
+        "purpose": "root_allocation",
+        "description": "IPv6 documentation prefix (RFC 3849) - root allocation"
+      },
+      "routable": true,
+      "description": "Root allocation for IPv6 documentation space"
+    },
+    {
+      "vrf_id": "prod-vrf",
+      "cidr": "2001:db8:1000::/48",
+      "parent_prefix_id": "2001:db8::/32",
+      "tags": {
+        "purpose": "vpc_reservation",
+        "description": "Reserved for production IPv6 VPC",
+        "env": "prod",
+        "ip_version": "6"
+      },
+      "routable": true,
+      "vpc_children_type_flag": true,
+      "description": "IPv6 VPC reservation for production services"
+    },
+    {
+      "vrf_id": "prod-vrf",
+      "cidr": "2001:db8:2000::/48",
+      "parent_prefix_id": "2001:db8::/32",
+      "tags": {
+        "purpose": "vpc_reservation",
+        "description": "Reserved for development IPv6 VPC",
+        "env": "dev",
+        "ip_version": "6"
+      },
+      "routable": false,
+      "vpc_children_type_flag": true,
+      "description": "IPv6 VPC reservation for non-routable development services"
+    },
+    {
+      "vrf_id": "prod-vrf",
+      "cidr": "2001:db8:3000::/56",
+      "parent_prefix_id": "2001:db8:1000::/48",
+      "tags": {
+        "purpose": "subnet_allocation",
+        "description": "IPv6 subnet allocation for production services",
+        "env": "prod",
+        "ip_version": "6"
+      },
+      "routable": true,
+      "description": "IPv6 subnet allocation example"
     }
   ]
 }

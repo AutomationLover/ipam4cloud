@@ -15,6 +15,7 @@ from dataclasses import dataclass
 
 from models import DatabaseManager, PrefixManager, VPC, Prefix
 from json_loader import JSONDataLoader
+import ipaddress
 
 # Create logs directory if it doesn't exist
 os.makedirs('logs', exist_ok=True)
@@ -159,15 +160,33 @@ class AWSVPCSubnetSync:
                 logger.debug(f"Processing page {total_pages} for VPC {vpc_id}")
                 
                 for subnet in page['Subnets']:
+                    # Process IPv4 CIDR block
                     subnet_info = {
                         'subnet_id': subnet['SubnetId'],
                         'cidr_block': subnet['CidrBlock'],
                         'availability_zone': subnet['AvailabilityZone'],
                         'state': subnet['State'],
                         'vpc_id': subnet['VpcId'],
-                        'tags': {tag['Key']: tag['Value'] for tag in subnet.get('Tags', [])}
+                        'tags': {tag['Key']: tag['Value'] for tag in subnet.get('Tags', [])},
+                        'ip_version': 4
                     }
                     subnets.append(subnet_info)
+                    
+                    # Process IPv6 CIDR blocks if present
+                    ipv6_associations = subnet.get('Ipv6CidrBlockAssociationSet', [])
+                    for ipv6_assoc in ipv6_associations:
+                        if ipv6_assoc.get('Ipv6CidrBlockState', {}).get('State') == 'associated':
+                            ipv6_subnet_info = {
+                                'subnet_id': subnet['SubnetId'],
+                                'cidr_block': ipv6_assoc['Ipv6CidrBlock'],
+                                'availability_zone': subnet['AvailabilityZone'],
+                                'state': subnet['State'],
+                                'vpc_id': subnet['VpcId'],
+                                'tags': {tag['Key']: tag['Value'] for tag in subnet.get('Tags', [])},
+                                'ip_version': 6,
+                                'ipv6_association_id': ipv6_assoc.get('AssociationId')
+                            }
+                            subnets.append(ipv6_subnet_info)
                 
                 # Log progress for large VPCs
                 if len(subnets) % 100 == 0:
@@ -247,11 +266,26 @@ class AWSVPCSubnetSync:
         finally:
             session.close()
     
+    def _format_cidr_for_id(self, cidr: str) -> str:
+        """Format CIDR for use in prefix_id, handling both IPv4 and IPv6"""
+        try:
+            network = ipaddress.ip_network(cidr, strict=False)
+            if network.version == 4:
+                # IPv4: replace dots and slashes with hyphens
+                return cidr.replace('/', '-').replace('.', '-')
+            else:
+                # IPv6: replace colons and slashes with hyphens, handle compressed notation
+                expanded = network.exploded.replace(':', '-').replace('/', '-')
+                return expanded
+        except (ValueError, ipaddress.AddressValueError):
+            # Fallback to simple replacement if parsing fails
+            return cidr.replace('/', '-').replace('.', '-').replace(':', '-')
+    
     def _create_subnet_prefix(self, vpc: VPC, subnet_data: Dict[str, Any]):
         """Create a new subnet prefix in the database"""
         try:
             # Generate prefix_id for subnet
-            cidr_formatted = subnet_data['cidr_block'].replace('/', '-').replace('.', '-')
+            cidr_formatted = self._format_cidr_for_id(subnet_data['cidr_block'])
             prefix_id = f"{vpc.vpc_id}-subnet-{cidr_formatted}"
             
             # Find the correct parent prefix that contains this subnet

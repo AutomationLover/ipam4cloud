@@ -12,6 +12,20 @@
         "env": "prod"
       },
       "description": "Production NAT Gateway IP"
+    },
+    {
+      "ip": "2001:db8::1",
+      "cidr": "2001:db8::1/128",
+      "vpc_provider_vpc_id": "vpc-0abc1234",
+      "provider": "aws",
+      "provider_account_id": "123456789012",
+      "region": "us-east-1",
+      "tags": {
+        "Name": "prod-ipv6-gateway-1",
+        "env": "prod",
+        "ip_version": "6"
+      },
+      "description": "Production IPv6 Gateway IP"
     }
   ]
 }

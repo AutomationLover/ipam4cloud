@@ -152,6 +152,23 @@ class PrefixManager:
     def __init__(self, db_manager: DatabaseManager):
         self.db_manager = db_manager
     
+    @staticmethod
+    def format_cidr_for_id(cidr: str) -> str:
+        """Format CIDR for use in prefix_id, handling both IPv4 and IPv6"""
+        try:
+            network = ipaddress.ip_network(cidr, strict=False)
+            if network.version == 4:
+                # IPv4: replace dots and slashes with hyphens
+                return cidr.replace('/', '-').replace('.', '-')
+            else:
+                # IPv6: replace colons and slashes with hyphens, handle compressed notation
+                # Expand compressed IPv6 addresses for consistent formatting
+                expanded = network.exploded.replace(':', '-').replace('/', '-')
+                return expanded
+        except (ValueError, ipaddress.AddressValueError):
+            # Fallback to simple replacement if parsing fails
+            return cidr.replace('/', '-').replace('.', '-').replace(':', '-')
+    
     def create_manual_prefix(self, vrf_id: str, cidr: str, parent_prefix_id: Optional[str] = None, 
                            tags: Optional[Dict[str, Any]] = None, routable: bool = True,
                            vpc_children_type_flag: bool = False) -> Prefix:
@@ -161,7 +178,7 @@ class PrefixManager:
         
         with self.db_manager.get_session() as session:
             # Generate prefix_id based on the format: manual-vrfid-prefix-id
-            cidr_formatted = cidr.replace('/', '-').replace('.', '-')
+            cidr_formatted = self.format_cidr_for_id(cidr)
             prefix_id = f"manual-{vrf_id}-{cidr_formatted}"
             
             prefix = Prefix(
@@ -184,7 +201,7 @@ class PrefixManager:
         """Create a public IP prefix entry for a VPC following the vpc-subnet-prefix format"""
         with self.db_manager.get_session() as session:
             # Generate prefix_id in format: vpcid-subnet-prefix (for public IPs)
-            cidr_formatted = cidr.replace('/', '-').replace('.', '-')
+            cidr_formatted = self.format_cidr_for_id(cidr)
             prefix_id = f"{vpc_id}-subnet-{cidr_formatted}"
             
             prefix = Prefix(
@@ -208,7 +225,7 @@ class PrefixManager:
         """Create a standalone public IP prefix entry (not associated with any VPC)"""
         with self.db_manager.get_session() as session:
             # Generate prefix_id for standalone public IPs
-            cidr_formatted = cidr.replace('/', '-').replace('.', '-')
+            cidr_formatted = self.format_cidr_for_id(cidr)
             prefix_id = f"public-ip-{cidr_formatted}"
             
             prefix = Prefix(
