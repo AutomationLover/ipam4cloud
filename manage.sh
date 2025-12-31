@@ -29,6 +29,18 @@ print_error() {
     echo -e "${RED}❌ $1${NC}"
 }
 
+# Check if .env file exists, create from env.example if not
+if [ ! -f .env ]; then
+    if [ -f env.example ]; then
+        print_warning ".env file not found. Creating from env.example..."
+        cp env.example .env
+        print_success ".env file created"
+    else
+        print_error ".env file not found and env.example does not exist!"
+        exit 1
+    fi
+fi
+
 # Docker Compose command with env file
 DOCKER_COMPOSE="docker compose -f containers/docker-compose.yml --env-file .env"
 
@@ -74,8 +86,15 @@ start_containers() {
     
     if [ "$clean_db" = true ]; then
         print_warning "Cleaning database (removing all volumes and data)..."
-        $DOCKER_COMPOSE down -v 2>/dev/null || true
+        $DOCKER_COMPOSE down -v --remove-orphans 2>/dev/null || true
         print_success "Database cleaned"
+    fi
+    
+    # Remove any existing containers with conflicting names
+    print_status "Removing any existing containers..."
+    existing_containers=$(docker ps -a --filter "name=prefix_" --format "{{.Names}}" 2>/dev/null || true)
+    if [ -n "$existing_containers" ]; then
+        echo "$existing_containers" | xargs docker rm -f 2>/dev/null || true
     fi
     
     print_status "Starting containers..."
@@ -92,7 +111,7 @@ start_containers() {
 # Function to stop containers
 stop_containers() {
     print_status "Stopping containers..."
-    $DOCKER_COMPOSE down
+    $DOCKER_COMPOSE down --remove-orphans
     print_success "Containers stopped"
 }
 
@@ -150,14 +169,24 @@ show_status() {
 # Function to clean database
 clean_database() {
     print_warning "Cleaning database (removing volumes)..."
-    $DOCKER_COMPOSE down -v
+    $DOCKER_COMPOSE down -v --remove-orphans
+    # Also remove any orphaned containers
+    existing_containers=$(docker ps -a --filter "name=prefix_" --format "{{.Names}}" 2>/dev/null || true)
+    if [ -n "$existing_containers" ]; then
+        echo "$existing_containers" | xargs docker rm -f 2>/dev/null || true
+    fi
     print_success "Database cleaned"
 }
 
 # Function to reset everything
 reset_system() {
     print_warning "Performing complete system reset..."
-    $DOCKER_COMPOSE down -v
+    $DOCKER_COMPOSE down -v --remove-orphans
+    # Remove any orphaned containers
+    existing_containers=$(docker ps -a --filter "name=prefix_" --format "{{.Names}}" 2>/dev/null || true)
+    if [ -n "$existing_containers" ]; then
+        echo "$existing_containers" | xargs docker rm -f 2>/dev/null || true
+    fi
     print_status "Starting fresh system..."
     $DOCKER_COMPOSE up -d
     print_success "System reset complete!"

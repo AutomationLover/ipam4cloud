@@ -7,6 +7,12 @@ Implements the user stories from the database design document.
 import os
 import time
 import uuid
+import csv
+import ast
+import json
+import ipaddress
+from pathlib import Path
+from typing import Optional
 from sqlalchemy import text
 from models import DatabaseManager, PrefixManager, VRF, VPC, Prefix
 from json_loader import JSONDataLoader
@@ -420,6 +426,204 @@ def demo_space_analysis(prefix_manager: PrefixManager):
         name = prefix.tags.get('Name', 'unnamed')
         print(f"     - {prefix.cidr} ({name}) - Service: {service}")
 
+def parse_device42_tags(notes_field: str) -> dict:
+    """
+    Parse tags from Device42 Notes field.
+    Handles both formats:
+    1. Dictionary format: "{'key': 'value', ...}"
+    2. List of Key-Value dicts: "[{'Key': 'key', 'Value': 'value'}, ...]"
+    """
+    if not notes_field or notes_field == 'None' or notes_field.strip() == '':
+        return {}
+    
+    tags = {}
+    
+    try:
+        # Try to parse as Python literal (dict or list)
+        parsed = ast.literal_eval(notes_field)
+        
+        if isinstance(parsed, dict):
+            # Direct dictionary format
+            tags = parsed
+        elif isinstance(parsed, list):
+            # List of Key-Value dictionaries
+            for item in parsed:
+                if isinstance(item, dict) and 'Key' in item and 'Value' in item:
+                    tags[item['Key']] = item['Value']
+        
+    except (ValueError, SyntaxError) as e:
+        # If parsing fails, try JSON parsing
+        try:
+            parsed = json.loads(notes_field)
+            if isinstance(parsed, dict):
+                tags = parsed
+            elif isinstance(parsed, list):
+                for item in parsed:
+                    if isinstance(item, dict) and 'Key' in item and 'Value' in item:
+                        tags[item['Key']] = item['Value']
+        except (json.JSONDecodeError, ValueError):
+            # If both fail, return empty tags
+            print(f"   ⚠️  Warning: Could not parse tags from Notes field: {notes_field[:50]}...")
+            return {}
+    
+    return tags
+
+def ensure_device42_vrf(prefix_manager: PrefixManager, vrf_name: str) -> str:
+    """
+    Ensure Device42 VRF exists. Adds 'd42-' prefix to avoid conflicts.
+    If vrf_name is empty or None, creates a default Device42 VRF.
+    """
+    if not vrf_name or vrf_name.strip() == '' or vrf_name == 'None':
+        vrf_id = 'd42-default-vrf'
+        description = 'Default VRF for Device42 imported subnets'
+    else:
+        # Sanitize VRF name and add prefix
+        sanitized_name = vrf_name.strip().replace(' ', '-').lower()
+        vrf_id = f'd42-{sanitized_name}'
+        description = f'Device42 VRF: {vrf_name}'
+    
+    with prefix_manager.db_manager.get_session() as session:
+        # Check if VRF already exists
+        existing_vrf = session.query(VRF).filter(VRF.vrf_id == vrf_id).first()
+        if existing_vrf:
+            return vrf_id
+        
+        # Create new VRF
+        vrf = VRF(
+            vrf_id=vrf_id,
+            description=description,
+            tags={'source': 'device42', 'original_name': vrf_name},
+            is_default=False,
+            routable_flag=True  # Default to routable, can be adjusted per prefix
+        )
+        
+        session.add(vrf)
+        session.commit()
+        print(f"   ✓ Created VRF: {vrf_id}")
+        return vrf_id
+
+def load_device42_subnets_from_csv(prefix_manager: PrefixManager, csv_file: str = "data/device42_subnet.csv", limit: Optional[int] = None):
+    """
+    Load Device42 subnet data from CSV file.
+    
+    Args:
+        prefix_manager: PrefixManager instance
+        csv_file: Path to Device42 CSV file
+        limit: Number of records to process (None for all records)
+    """
+    print("\n" + "="*60)
+    print("LOADING: Device42 Subnets from CSV")
+    print("="*60)
+    
+    csv_path = Path(csv_file)
+    if not csv_path.exists():
+        print(f"❌ Device42 CSV file not found: {csv_path}")
+        return
+    
+    try:
+        created_prefixes = {}
+        vrf_cache = {}  # Cache VRF IDs to avoid repeated lookups
+        
+        if limit:
+            print(f"\nReading Device42 subnet CSV (processing first {limit} records)...")
+        else:
+            print(f"\nReading Device42 subnet CSV (processing all records)...")
+        
+        with open(csv_path, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            record_count = 0
+            skipped_count = 0
+            
+            for row in reader:
+                if limit and record_count >= limit:
+                    break
+                
+                record_count += 1
+                
+                # Extract subnet information
+                network = row.get('Network', '').strip()
+                mask_bits = row.get('Mask_Bits', '').strip()
+                vrf_group = row.get('VRF_Group', '').strip()
+                notes = row.get('Notes', '').strip()
+                name = row.get('Name', '').strip()
+                description = row.get('Description', '').strip()
+                
+                # Skip if network or mask_bits is missing
+                if not network or not mask_bits or network == 'None' or mask_bits == 'None':
+                    skipped_count += 1
+                    if record_count <= 10 or record_count % 100 == 0:  # Show first 10 and every 100th
+                        print(f"   ⚠️  Skipping record #{record_count}: Missing network or mask_bits")
+                    continue
+                
+                # Construct CIDR
+                try:
+                    cidr = f"{network}/{mask_bits}"
+                    # Validate CIDR format
+                    ipaddress.ip_network(cidr, strict=False)
+                except (ValueError, ipaddress.AddressValueError) as e:
+                    skipped_count += 1
+                    if record_count <= 10 or record_count % 100 == 0:  # Show first 10 and every 100th
+                        print(f"   ⚠️  Skipping record #{record_count}: Invalid CIDR {cidr}: {e}")
+                    continue
+                
+                # Ensure VRF exists
+                if vrf_group not in vrf_cache:
+                    vrf_id = ensure_device42_vrf(prefix_manager, vrf_group)
+                    vrf_cache[vrf_group] = vrf_id
+                else:
+                    vrf_id = vrf_cache[vrf_group]
+                
+                # Parse tags from Notes field
+                tags = parse_device42_tags(notes)
+                
+                # Add additional metadata
+                tags['source'] = 'device42'
+                tags['device42_id'] = row.get('id', '')
+                if name:
+                    tags['Name'] = name
+                if description:
+                    tags['description'] = description
+                
+                # Create prefix
+                try:
+                    if record_count <= 10 or record_count % 100 == 0:  # Show progress for first 10 and every 100th
+                        print(f"   Processing record #{record_count}: {cidr} in VRF {vrf_id}")
+                    
+                    prefix = safe_create_prefix(
+                        prefix_manager,
+                        vrf_id=vrf_id,
+                        cidr=cidr,
+                        parent_prefix_id=None,  # No parent for Device42 subnets initially
+                        tags=tags,
+                        routable=True,  # Default to routable
+                        vpc_children_type_flag=False
+                    )
+                    
+                    created_prefixes[cidr] = prefix
+                    if record_count <= 10 or record_count % 100 == 0:  # Show progress
+                        print(f"      ✓ Created: {prefix.prefix_id}")
+                    
+                except Exception as e:
+                    skipped_count += 1
+                    if "already exists" in str(e) or "duplicate key" in str(e):
+                        if record_count <= 10 or record_count % 100 == 0:
+                            print(f"      ⚠️  Prefix {cidr} already exists, skipping")
+                    else:
+                        print(f"      ❌ Error creating prefix {cidr}: {e}")
+                        raise
+        
+        print(f"\n✅ Successfully processed {record_count} records")
+        print(f"   ✓ Created: {len(created_prefixes)} Device42 subnets")
+        if skipped_count > 0:
+            print(f"   ⚠️  Skipped: {skipped_count} records (missing data or duplicates)")
+        return created_prefixes
+        
+    except Exception as e:
+        print(f"❌ Error loading Device42 subnets: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
+
 def demo_ipv6_support(prefix_manager: PrefixManager):
     """
     Demonstrate IPv6 support functionality
@@ -504,7 +708,10 @@ def main():
         # Step 4: Load public IP addresses
         load_public_ips_from_json(prefix_manager, data_loader, created_vpcs)
         
-        # Step 5: Run demonstration queries (using VPCs by provider ID for compatibility)
+        # Step 5: Load Device42 subnets (all records)
+        load_device42_subnets_from_csv(prefix_manager, csv_file="data/device42_subnet.csv", limit=None)
+        
+        # Step 6: Run demonstration queries (using VPCs by provider ID for compatibility)
         vpc1 = created_vpcs.get('vpc-0abc1234')
         vpc2 = created_vpcs.get('vpc-0def5678')
         
@@ -514,7 +721,7 @@ def main():
         else:
             print("⚠️  Skipping client queries demo - VPCs not found")
         
-        # Step 6: Demonstrate IPv6 support
+        # Step 7: Demonstrate IPv6 support
         demo_ipv6_support(prefix_manager)
         
         print("\n" + "="*60)

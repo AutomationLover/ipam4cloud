@@ -1,0 +1,1 @@
+﻿id,Name,Description,Number,Vendor_Subnet_ID,Network,Mask_Bits,Gateway,Range_Begin,Range_End,Parent_VLAN,Customer,Parent_Subnet,VRF_Group,Category,Service_Level,Type,Notes,Allow_network_address_as_usable,Allow_broadcast_address_as_usable,Assigned,Allocated,Add_IPs,Last_date/time_the_subnet_has_changed,mt_is_orphan,details,check_unique
