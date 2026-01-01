@@ -32,8 +32,63 @@ def wait_for_db(db_manager: DatabaseManager, max_retries: int = 30):
     
     raise Exception("Could not connect to database after maximum retries")
 
+def find_parent_prefix(prefix_manager: PrefixManager, vrf_id: str, cidr: str) -> Optional[str]:
+    """
+    Automatically find the parent prefix for a given CIDR in the same VRF.
+    Returns the most specific parent prefix that contains this CIDR.
+    """
+    try:
+        child_network = ipaddress.ip_network(cidr, strict=False)
+    except (ValueError, ipaddress.AddressValueError):
+        return None
+    
+    with prefix_manager.db_manager.get_session() as session:
+        from models import Prefix
+        
+        # Find all prefixes in the same VRF that could be parents
+        potential_parents = session.query(Prefix).filter(
+            Prefix.vrf_id == vrf_id,
+            Prefix.source == 'manual'  # Only manual prefixes can be parents
+        ).all()
+        
+        # Filter to find prefixes that contain this CIDR
+        containing_parents = []
+        for prefix in potential_parents:
+            try:
+                parent_network = ipaddress.ip_network(str(prefix.cidr), strict=False)
+                # Only compare networks of the same IP version (IPv4 vs IPv6)
+                if parent_network.version != child_network.version:
+                    continue
+                # Check if child is a subnet of parent (parent contains child)
+                if child_network.subnet_of(parent_network):
+                    containing_parents.append(prefix)
+            except (ValueError, ipaddress.AddressValueError, TypeError):
+                continue
+        
+        if not containing_parents:
+            return None
+        
+        # Sort by prefix length (most specific/longest mask first)
+        # This ensures we get the closest parent
+        containing_parents.sort(
+            key=lambda p: ipaddress.ip_network(str(p.cidr), strict=False).prefixlen,
+            reverse=True
+        )
+        
+        # Return the most specific parent
+        return containing_parents[0].prefix_id
+
 def safe_create_prefix(prefix_manager: PrefixManager, **kwargs):
-    """Create prefix with duplicate handling"""
+    """Create prefix with duplicate handling and automatic parent detection"""
+    # If parent_prefix_id is not provided, try to find it automatically
+    if kwargs.get('parent_prefix_id') is None:
+        vrf_id = kwargs.get('vrf_id')
+        cidr = kwargs.get('cidr')
+        if vrf_id and cidr:
+            auto_parent = find_parent_prefix(prefix_manager, vrf_id, cidr)
+            if auto_parent:
+                kwargs['parent_prefix_id'] = auto_parent
+    
     try:
         return prefix_manager.create_manual_prefix(**kwargs)
     except Exception as e:
@@ -426,6 +481,128 @@ def demo_space_analysis(prefix_manager: PrefixManager):
         name = prefix.tags.get('Name', 'unnamed')
         print(f"     - {prefix.cidr} ({name}) - Service: {service}")
 
+def is_aws_vpc_record(notes_field: str) -> bool:
+    """
+    Check if a Device42 Notes field contains AWS VPC metadata.
+    AWS VPC records can have Notes in two formats:
+    1. List format: [{'Key': 'subnet-creator', 'Value': '...'}, {'Key': 'SubnetId', 'Value': '...'}, ...]
+    2. Dict format: {'account': '...', 'environment': '...', 'customer': '...', 'subnet-type': '...'}
+    
+    Args:
+        notes_field: The Notes field from Device42 CSV
+        
+    Returns:
+        True if this appears to be an AWS VPC record, False otherwise
+    """
+    if not notes_field or notes_field == 'None' or notes_field.strip() == '':
+        return False
+    
+    try:
+        # Try to parse as Python literal (dict or list)
+        parsed = ast.literal_eval(notes_field)
+        
+        if isinstance(parsed, list):
+            # Check if it's a list of Key-Value dictionaries (AWS VPC format)
+            aws_vpc_keys = {'SubnetId', 'VpcId', 'subnet-creator', 'region', 'az_id'}
+            eip_keys = {'eip-allowlist', 'eip-type', 'service_uuid'}
+            found_keys = set()
+            service_name_value = None
+            
+            for item in parsed:
+                if isinstance(item, dict) and 'Key' in item and 'Value' in item:
+                    key = item['Key']
+                    value = item['Value']
+                    found_keys.add(key)
+                    
+                    # If we find AWS VPC-specific keys, it's an AWS VPC record
+                    if key in aws_vpc_keys:
+                        return True
+                    
+                    # Track service_name value for EIP detection
+                    if key == 'service_name':
+                        service_name_value = str(value).lower()
+            
+            # Check for EIP records: has eip-related keys or service_uuid with cloud network service
+            if any(key in found_keys for key in eip_keys):
+                return True
+            if 'service_uuid' in found_keys and service_name_value and 'cloud network' in service_name_value:
+                return True
+        
+        elif isinstance(parsed, dict):
+            # Check if it's a dictionary with AWS VPC metadata keys
+            # AWS VPC records in dict format can have various AWS-related keys:
+            # - account + subnet-type (original format)
+            # - aws:cloudformation:* keys (CloudFormation resources)
+            # - environment + service_name + resource_owner (AWS managed resources)
+            dict_keys = set(parsed.keys())
+            
+            # Check for account + subnet-type pattern
+            if 'account' in dict_keys and 'subnet-type' in dict_keys:
+                return True
+            
+            # Check for AWS CloudFormation keys (any key starting with 'aws:' or containing 'cloudformation')
+            aws_cloudformation_indicators = ['aws:', 'cloudformation', 'stack']
+            for key in dict_keys:
+                key_lower = str(key).lower()
+                if any(indicator in key_lower for indicator in aws_cloudformation_indicators):
+                    return True
+            
+            # Check for AWS managed resource pattern (environment + service_name + resource_owner)
+            aws_managed_indicators = {'environment', 'service_name', 'resource_owner', 'business_unit'}
+            if len(aws_managed_indicators.intersection(dict_keys)) >= 3:
+                return True
+        
+    except (ValueError, SyntaxError):
+        # If parsing fails, try JSON parsing
+        try:
+            parsed = json.loads(notes_field)
+            if isinstance(parsed, list):
+                aws_vpc_keys = {'SubnetId', 'VpcId', 'subnet-creator', 'region', 'az_id'}
+                eip_keys = {'eip-allowlist', 'eip-type', 'service_uuid'}
+                found_keys = set()
+                service_name_value = None
+                
+                for item in parsed:
+                    if isinstance(item, dict) and 'Key' in item and 'Value' in item:
+                        key = item['Key']
+                        value = item['Value']
+                        found_keys.add(key)
+                        
+                        if key in aws_vpc_keys:
+                            return True
+                        
+                        if key == 'service_name':
+                            service_name_value = str(value).lower()
+                
+                # Check for EIP records
+                if any(key in found_keys for key in eip_keys):
+                    return True
+                if 'service_uuid' in found_keys and service_name_value and 'cloud network' in service_name_value:
+                    return True
+            elif isinstance(parsed, dict):
+                # Check if it's a dictionary with AWS VPC metadata keys
+                dict_keys = set(parsed.keys())
+                
+                # Check for account + subnet-type pattern
+                if 'account' in dict_keys and 'subnet-type' in dict_keys:
+                    return True
+                
+                # Check for AWS CloudFormation keys
+                aws_cloudformation_indicators = ['aws:', 'cloudformation', 'stack']
+                for key in dict_keys:
+                    key_lower = str(key).lower()
+                    if any(indicator in key_lower for indicator in aws_cloudformation_indicators):
+                        return True
+                
+                # Check for AWS managed resource pattern
+                aws_managed_indicators = {'environment', 'service_name', 'resource_owner', 'business_unit'}
+                if len(aws_managed_indicators.intersection(dict_keys)) >= 3:
+                    return True
+        except (json.JSONDecodeError, ValueError):
+            pass
+    
+    return False
+
 def parse_device42_tags(notes_field: str) -> dict:
     """
     Parse tags from Device42 Notes field.
@@ -516,9 +693,23 @@ def load_device42_subnets_from_csv(prefix_manager: PrefixManager, csv_file: str 
     print("="*60)
     
     csv_path = Path(csv_file)
-    if not csv_path.exists():
-        print(f"❌ Device42 CSV file not found: {csv_path}")
-        return
+    
+    # If the specified file doesn't exist or is too small (only header), try subnet.csv as fallback
+    if not csv_path.exists() or (csv_path.exists() and csv_path.stat().st_size < 1000):
+        fallback_path = Path("data/subnet.csv")
+        if fallback_path.exists() and fallback_path.stat().st_size > 1000:
+            print(f"⚠️  {csv_file} not found or empty, using fallback: {fallback_path}")
+            csv_path = fallback_path
+        else:
+            if not csv_path.exists():
+                print(f"❌ Device42 CSV file not found: {csv_path}")
+            else:
+                print(f"⚠️  {csv_file} appears to be empty (only header)")
+            if not fallback_path.exists() or fallback_path.stat().st_size < 1000:
+                print(f"❌ Fallback file {fallback_path} also not found or empty")
+                return
+    
+    print(f"📄 Using CSV file: {csv_path}")
     
     try:
         created_prefixes = {}
@@ -529,11 +720,14 @@ def load_device42_subnets_from_csv(prefix_manager: PrefixManager, csv_file: str 
         else:
             print(f"\nReading Device42 subnet CSV (processing all records)...")
         
+        # First pass: collect all valid records
+        records_to_process = []
+        record_count = 0
+        skipped_count = 0
+        aws_vpc_filtered_count = 0
+        
         with open(csv_path, 'r', encoding='utf-8') as f:
             reader = csv.DictReader(f)
-            record_count = 0
-            skipped_count = 0
-            
             for row in reader:
                 if limit and record_count >= limit:
                     break
@@ -548,6 +742,13 @@ def load_device42_subnets_from_csv(prefix_manager: PrefixManager, csv_file: str 
                 name = row.get('Name', '').strip()
                 description = row.get('Description', '').strip()
                 
+                # Filter out AWS VPC records (they will be loaded from VPC sync instead)
+                if is_aws_vpc_record(notes):
+                    aws_vpc_filtered_count += 1
+                    if record_count <= 10 or record_count % 1000 == 0:  # Show first 10 and every 1000th
+                        print(f"   ⏭️  Filtering AWS VPC record #{record_count}: {network}/{mask_bits}")
+                    continue
+                
                 # Skip if network or mask_bits is missing
                 if not network or not mask_bits or network == 'None' or mask_bits == 'None':
                     skipped_count += 1
@@ -555,67 +756,104 @@ def load_device42_subnets_from_csv(prefix_manager: PrefixManager, csv_file: str 
                         print(f"   ⚠️  Skipping record #{record_count}: Missing network or mask_bits")
                     continue
                 
-                # Construct CIDR
+                # Construct CIDR and validate
                 try:
                     cidr = f"{network}/{mask_bits}"
                     # Validate CIDR format
-                    ipaddress.ip_network(cidr, strict=False)
+                    ip_network = ipaddress.ip_network(cidr, strict=False)
+                    mask_length = ip_network.prefixlen
                 except (ValueError, ipaddress.AddressValueError) as e:
                     skipped_count += 1
                     if record_count <= 10 or record_count % 100 == 0:  # Show first 10 and every 100th
                         print(f"   ⚠️  Skipping record #{record_count}: Invalid CIDR {cidr}: {e}")
                     continue
                 
-                # Ensure VRF exists
-                if vrf_group not in vrf_cache:
-                    vrf_id = ensure_device42_vrf(prefix_manager, vrf_group)
-                    vrf_cache[vrf_group] = vrf_id
+                # Store record for processing (with mask length for sorting)
+                records_to_process.append({
+                    'row': row,
+                    'cidr': cidr,
+                    'network': network,
+                    'mask_bits': mask_bits,
+                    'mask_length': mask_length,
+                    'vrf_group': vrf_group,
+                    'notes': notes,
+                    'name': name,
+                    'description': description
+                })
+        
+        # Sort records by mask length (ascending) so parent CIDRs (shorter masks) load before children (longer masks)
+        # Also sort by network address for consistent ordering within same mask length
+        print(f"\n📊 Collected {len(records_to_process)} records to process")
+        print(f"   Sorting by mask length (parents first)...")
+        records_to_process.sort(key=lambda r: (r['mask_length'], str(ipaddress.ip_network(r['cidr'], strict=False).network_address)))
+        
+        # Second pass: process sorted records
+        processed_count = 0
+        for record_data in records_to_process:
+            processed_count += 1
+            row = record_data['row']
+            cidr = record_data['cidr']
+            vrf_group = record_data['vrf_group']
+            notes = record_data['notes']
+            name = record_data['name']
+            description = record_data['description']
+            
+            # Ensure VRF exists
+            if vrf_group not in vrf_cache:
+                vrf_id = ensure_device42_vrf(prefix_manager, vrf_group)
+                vrf_cache[vrf_group] = vrf_id
+            else:
+                vrf_id = vrf_cache[vrf_group]
+            
+            # Parse tags from Notes field
+            tags = parse_device42_tags(notes)
+            
+            # Add additional metadata
+            tags['source'] = 'device42'
+            tags['device42_id'] = row.get('id', '')
+            if name:
+                tags['Name'] = name
+            if description:
+                tags['description'] = description
+            
+            # Create prefix
+            try:
+                if processed_count <= 10 or processed_count % 100 == 0:  # Show progress for first 10 and every 100th
+                    print(f"   Processing record #{processed_count}/{len(records_to_process)}: {cidr} (/{record_data['mask_length']}) in VRF {vrf_id}")
+                
+                prefix = safe_create_prefix(
+                    prefix_manager,
+                    vrf_id=vrf_id,
+                    cidr=cidr,
+                    parent_prefix_id=None,  # No parent for Device42 subnets initially
+                    tags=tags,
+                    routable=True,  # Default to routable
+                    vpc_children_type_flag=False
+                )
+                
+                created_prefixes[cidr] = prefix
+                if processed_count <= 10 or processed_count % 100 == 0:  # Show progress
+                    print(f"      ✓ Created: {prefix.prefix_id}")
+                
+            except Exception as e:
+                skipped_count += 1
+                if "already exists" in str(e) or "duplicate key" in str(e):
+                    if processed_count <= 10 or processed_count % 100 == 0:
+                        print(f"      ⚠️  Prefix {cidr} already exists, skipping")
                 else:
-                    vrf_id = vrf_cache[vrf_group]
-                
-                # Parse tags from Notes field
-                tags = parse_device42_tags(notes)
-                
-                # Add additional metadata
-                tags['source'] = 'device42'
-                tags['device42_id'] = row.get('id', '')
-                if name:
-                    tags['Name'] = name
-                if description:
-                    tags['description'] = description
-                
-                # Create prefix
-                try:
-                    if record_count <= 10 or record_count % 100 == 0:  # Show progress for first 10 and every 100th
-                        print(f"   Processing record #{record_count}: {cidr} in VRF {vrf_id}")
-                    
-                    prefix = safe_create_prefix(
-                        prefix_manager,
-                        vrf_id=vrf_id,
-                        cidr=cidr,
-                        parent_prefix_id=None,  # No parent for Device42 subnets initially
-                        tags=tags,
-                        routable=True,  # Default to routable
-                        vpc_children_type_flag=False
-                    )
-                    
-                    created_prefixes[cidr] = prefix
-                    if record_count <= 10 or record_count % 100 == 0:  # Show progress
-                        print(f"      ✓ Created: {prefix.prefix_id}")
-                    
-                except Exception as e:
-                    skipped_count += 1
-                    if "already exists" in str(e) or "duplicate key" in str(e):
-                        if record_count <= 10 or record_count % 100 == 0:
-                            print(f"      ⚠️  Prefix {cidr} already exists, skipping")
-                    else:
-                        print(f"      ❌ Error creating prefix {cidr}: {e}")
-                        raise
+                    print(f"      ❌ Error creating prefix {cidr}: {e}")
+                    raise
         
         print(f"\n✅ Successfully processed {record_count} records")
         print(f"   ✓ Created: {len(created_prefixes)} Device42 subnets")
+        print(f"   ⏭️  Filtered AWS VPC records: {aws_vpc_filtered_count} (will be loaded from VPC sync)")
         if skipped_count > 0:
             print(f"   ⚠️  Skipped: {skipped_count} records (missing data or duplicates)")
+        print(f"\n📊 Summary:")
+        print(f"   Total records in CSV: {record_count}")
+        print(f"   AWS VPC records filtered: {aws_vpc_filtered_count} ({aws_vpc_filtered_count*100/max(record_count,1):.1f}%)")
+        print(f"   Manual records to load: {record_count - aws_vpc_filtered_count - skipped_count}")
+        print(f"   Actually loaded: {len(created_prefixes)}")
         return created_prefixes
         
     except Exception as e:
