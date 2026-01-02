@@ -42,7 +42,21 @@ if [ ! -f .env ]; then
 fi
 
 # Docker Compose command with env file
-DOCKER_COMPOSE="docker compose -f containers/docker-compose.yml --env-file .env"
+# Try docker compose (V2) first, fallback to docker-compose (V1)
+if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+    # Docker Compose V2 (newer syntax)
+    DOCKER_COMPOSE="docker compose --file containers/docker-compose.yml --env-file .env"
+elif command -v docker-compose >/dev/null 2>&1; then
+    # Docker Compose V1 (older syntax)
+    DOCKER_COMPOSE="docker-compose --file containers/docker-compose.yml"
+    # For V1, we need to source .env file manually
+    if [ -f .env ]; then
+        export $(cat .env | grep -v '^#' | xargs)
+    fi
+else
+    print_error "Neither 'docker compose' nor 'docker-compose' found!"
+    exit 1
+fi
 
 # Function to show help
 show_help() {
