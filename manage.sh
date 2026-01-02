@@ -96,11 +96,42 @@ else
     print_error ""
     
     if [ "$INSTALL_COMPOSE" = true ]; then
-        print_status "Installing docker-compose-plugin (--install-compose flag detected)..."
+        print_status "Installing Docker Compose (--install-compose flag detected)..."
         if command -v apt-get >/dev/null 2>&1; then
+            # Try installing docker-compose-plugin from Docker's repository
+            print_status "Attempting to install docker-compose-plugin..."
             sudo apt-get update
-            sudo apt-get install -y docker-compose-plugin
-            print_success "Docker Compose plugin installed!"
+            if sudo apt-get install -y docker-compose-plugin 2>/dev/null; then
+                print_success "Docker Compose plugin installed!"
+            else
+                # Fallback: Install standalone docker-compose (V1)
+                print_warning "docker-compose-plugin not available, installing standalone docker-compose..."
+                if sudo apt-get install -y docker-compose 2>/dev/null; then
+                    print_success "Docker Compose (standalone) installed!"
+                else
+                    # Try installing from Docker's official repository
+                    print_status "Attempting to add Docker's official repository..."
+                    if ! grep -q "download.docker.com" /etc/apt/sources.list.d/*.list 2>/dev/null; then
+                        sudo apt-get install -y ca-certificates curl
+                        sudo install -m 0755 -d /etc/apt/keyrings
+                        sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+                        sudo chmod a+r /etc/apt/keyrings/docker.asc
+                        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+                        sudo apt-get update
+                    fi
+                    # Try again with Docker's repository
+                    if sudo apt-get install -y docker-compose-plugin 2>/dev/null; then
+                        print_success "Docker Compose plugin installed from Docker repository!"
+                    else
+                        print_error "Failed to install Docker Compose. Please install manually:"
+                        echo "  sudo apt-get update"
+                        echo "  sudo apt-get install docker-compose-plugin"
+                        echo "  # or"
+                        echo "  sudo apt-get install docker-compose"
+                        exit 1
+                    fi
+                fi
+            fi
             print_status "Verifying installation..."
             if docker compose version >/dev/null 2>&1; then
                 DOCKER_COMPOSE="docker compose --file containers/docker-compose.yml"
@@ -108,26 +139,61 @@ else
                     DOCKER_COMPOSE="$DOCKER_COMPOSE --env-file .env"
                 fi
                 print_success "Docker Compose is now available!"
+            elif command -v docker-compose >/dev/null 2>&1 && docker-compose version >/dev/null 2>&1; then
+                DOCKER_COMPOSE="docker-compose --file containers/docker-compose.yml"
+                if [ -f .env ]; then
+                    export $(cat .env | grep -v '^#' | grep -v '^$' | xargs)
+                fi
+                print_success "Docker Compose (standalone) is now available!"
             else
-                print_error "Installation completed but docker compose still not working."
+                print_error "Installation completed but Docker Compose still not working."
                 print_error "Please try: docker compose version"
                 exit 1
             fi
         else
-            print_error "apt-get not found. Please install Docker Compose manually:"
-            echo "  sudo apt-get update"
-            echo "  sudo apt-get install docker-compose-plugin"
+            print_error "apt-get not found. Please install Docker Compose manually."
             exit 1
         fi
     else
         print_warning "Would you like to install Docker Compose plugin automatically? (y/n)"
         read -r response
         if [[ "$response" =~ ^[Yy]$ ]]; then
-            print_status "Installing docker-compose-plugin..."
+            print_status "Installing Docker Compose..."
             if command -v apt-get >/dev/null 2>&1; then
+                # Try installing docker-compose-plugin from Docker's repository
+                print_status "Attempting to install docker-compose-plugin..."
                 sudo apt-get update
-                sudo apt-get install -y docker-compose-plugin
-                print_success "Docker Compose plugin installed!"
+                if sudo apt-get install -y docker-compose-plugin 2>/dev/null; then
+                    print_success "Docker Compose plugin installed!"
+                else
+                    # Fallback: Install standalone docker-compose (V1)
+                    print_warning "docker-compose-plugin not available, installing standalone docker-compose..."
+                    if sudo apt-get install -y docker-compose 2>/dev/null; then
+                        print_success "Docker Compose (standalone) installed!"
+                    else
+                        # Try installing from Docker's official repository
+                        print_status "Attempting to add Docker's official repository..."
+                        if ! grep -q "download.docker.com" /etc/apt/sources.list.d/*.list 2>/dev/null; then
+                            sudo apt-get install -y ca-certificates curl
+                            sudo install -m 0755 -d /etc/apt/keyrings
+                            sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+                            sudo chmod a+r /etc/apt/keyrings/docker.asc
+                            echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+                            sudo apt-get update
+                        fi
+                        # Try again with Docker's repository
+                        if sudo apt-get install -y docker-compose-plugin 2>/dev/null; then
+                            print_success "Docker Compose plugin installed from Docker repository!"
+                        else
+                            print_error "Failed to install Docker Compose. Please install manually:"
+                            echo "  sudo apt-get update"
+                            echo "  sudo apt-get install docker-compose-plugin"
+                            echo "  # or"
+                            echo "  sudo apt-get install docker-compose"
+                            exit 1
+                        fi
+                    fi
+                fi
                 print_status "Verifying installation..."
                 if docker compose version >/dev/null 2>&1; then
                     DOCKER_COMPOSE="docker compose --file containers/docker-compose.yml"
@@ -135,15 +201,19 @@ else
                         DOCKER_COMPOSE="$DOCKER_COMPOSE --env-file .env"
                     fi
                     print_success "Docker Compose is now available!"
+                elif command -v docker-compose >/dev/null 2>&1 && docker-compose version >/dev/null 2>&1; then
+                    DOCKER_COMPOSE="docker-compose --file containers/docker-compose.yml"
+                    if [ -f .env ]; then
+                        export $(cat .env | grep -v '^#' | grep -v '^$' | xargs)
+                    fi
+                    print_success "Docker Compose (standalone) is now available!"
                 else
-                    print_error "Installation completed but docker compose still not working."
+                    print_error "Installation completed but Docker Compose still not working."
                     print_error "Please try: docker compose version"
                     exit 1
                 fi
             else
-                print_error "apt-get not found. Please install Docker Compose manually:"
-                echo "  sudo apt-get update"
-                echo "  sudo apt-get install docker-compose-plugin"
+                print_error "apt-get not found. Please install Docker Compose manually."
                 exit 1
             fi
         else
