@@ -41,21 +41,131 @@ if [ ! -f .env ]; then
     fi
 fi
 
+# Check for --install-compose flag early (before Docker Compose detection)
+INSTALL_COMPOSE=false
+for arg in "$@"; do
+    if [ "$arg" = "--install-compose" ]; then
+        INSTALL_COMPOSE=true
+        break
+    fi
+done
+
 # Docker Compose command with env file
 # Try docker compose (V2) first, fallback to docker-compose (V1)
-if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
-    # Docker Compose V2 (newer syntax)
-    DOCKER_COMPOSE="docker compose --file containers/docker-compose.yml --env-file .env"
-elif command -v docker-compose >/dev/null 2>&1; then
+DOCKER_COMPOSE=""
+
+# Check if docker is installed
+if ! command -v docker >/dev/null 2>&1; then
+    print_error "Docker is not installed or not in PATH!"
+    print_error "Please install Docker first: https://docs.docker.com/get-docker/"
+    exit 1
+fi
+
+# Try Docker Compose V2 (docker compose as plugin) - try multiple ways
+if docker compose version >/dev/null 2>&1; then
+    # Docker Compose V2 (newer syntax) - version check passed
+    DOCKER_COMPOSE="docker compose --file containers/docker-compose.yml"
+    if [ -f .env ]; then
+        DOCKER_COMPOSE="$DOCKER_COMPOSE --env-file .env"
+    fi
+elif docker compose ps >/dev/null 2>&1; then
+    # Docker Compose V2 - try ps command instead of version
+    DOCKER_COMPOSE="docker compose --file containers/docker-compose.yml"
+    if [ -f .env ]; then
+        DOCKER_COMPOSE="$DOCKER_COMPOSE --env-file .env"
+    fi
+elif docker compose >/dev/null 2>&1 2>&1; then
+    # Docker Compose V2 - basic check (might show help)
+    DOCKER_COMPOSE="docker compose --file containers/docker-compose.yml"
+    if [ -f .env ]; then
+        DOCKER_COMPOSE="$DOCKER_COMPOSE --env-file .env"
+    fi
+# Try Docker Compose V1 (standalone docker-compose)
+elif command -v docker-compose >/dev/null 2>&1 && docker-compose version >/dev/null 2>&1; then
     # Docker Compose V1 (older syntax)
     DOCKER_COMPOSE="docker-compose --file containers/docker-compose.yml"
     # For V1, we need to source .env file manually
     if [ -f .env ]; then
-        export $(cat .env | grep -v '^#' | xargs)
+        export $(cat .env | grep -v '^#' | grep -v '^$' | xargs)
     fi
 else
-    print_error "Neither 'docker compose' nor 'docker-compose' found!"
-    exit 1
+    print_error "Docker Compose is not installed or not available!"
+    print_error ""
+    print_error "Docker version detected:"
+    docker --version 2>&1 || echo "  Docker not found"
+    print_error ""
+    
+    if [ "$INSTALL_COMPOSE" = true ]; then
+        print_status "Installing docker-compose-plugin (--install-compose flag detected)..."
+        if command -v apt-get >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y docker-compose-plugin
+            print_success "Docker Compose plugin installed!"
+            print_status "Verifying installation..."
+            if docker compose version >/dev/null 2>&1; then
+                DOCKER_COMPOSE="docker compose --file containers/docker-compose.yml"
+                if [ -f .env ]; then
+                    DOCKER_COMPOSE="$DOCKER_COMPOSE --env-file .env"
+                fi
+                print_success "Docker Compose is now available!"
+            else
+                print_error "Installation completed but docker compose still not working."
+                print_error "Please try: docker compose version"
+                exit 1
+            fi
+        else
+            print_error "apt-get not found. Please install Docker Compose manually:"
+            echo "  sudo apt-get update"
+            echo "  sudo apt-get install docker-compose-plugin"
+            exit 1
+        fi
+    else
+        print_warning "Would you like to install Docker Compose plugin automatically? (y/n)"
+        read -r response
+        if [[ "$response" =~ ^[Yy]$ ]]; then
+            print_status "Installing docker-compose-plugin..."
+            if command -v apt-get >/dev/null 2>&1; then
+                sudo apt-get update
+                sudo apt-get install -y docker-compose-plugin
+                print_success "Docker Compose plugin installed!"
+                print_status "Verifying installation..."
+                if docker compose version >/dev/null 2>&1; then
+                    DOCKER_COMPOSE="docker compose --file containers/docker-compose.yml"
+                    if [ -f .env ]; then
+                        DOCKER_COMPOSE="$DOCKER_COMPOSE --env-file .env"
+                    fi
+                    print_success "Docker Compose is now available!"
+                else
+                    print_error "Installation completed but docker compose still not working."
+                    print_error "Please try: docker compose version"
+                    exit 1
+                fi
+            else
+                print_error "apt-get not found. Please install Docker Compose manually:"
+                echo "  sudo apt-get update"
+                echo "  sudo apt-get install docker-compose-plugin"
+                exit 1
+            fi
+        else
+            print_error "Installation cancelled."
+            print_error ""
+            print_error "To install Docker Compose plugin manually (recommended for Docker 20.10+):"
+            echo "  sudo apt-get update"
+            echo "  sudo apt-get install docker-compose-plugin"
+            echo ""
+            print_error "Or use the --install-compose flag to install automatically:"
+            echo "  ./manage.sh start --install-compose"
+            echo ""
+            print_error "Or install standalone docker-compose (V1):"
+            echo "  sudo apt-get install docker-compose"
+            echo ""
+            print_error "After installation, verify with:"
+            echo "  docker compose version"
+            echo "  # or"
+            echo "  docker-compose version"
+            exit 1
+        fi
+    fi
 fi
 
 # Function to show help
@@ -81,6 +191,7 @@ show_help() {
     echo ""
     echo "Options:"
     echo "  --clean             Remove all database volumes (fresh start)"
+    echo "  --install-compose   Automatically install docker-compose-plugin if missing"
     echo "  -h, --help          Show this help message"
     echo ""
     echo "Examples:"
@@ -218,6 +329,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --clean)
             CLEAN_DB=true
+            shift
+            ;;
+        --install-compose)
+            # Already handled at the top, just skip
             shift
             ;;
         -h|--help)
