@@ -158,13 +158,10 @@ setup_middleware(app, {
 })
 
 # CORS middleware for Vue.js frontends (admin + readonly portals)
+# Allow all origins for flexibility (can be restricted in production)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:8080",  # Admin Portal
-        "http://localhost:8081",  # Read-Only Portal
-        "http://localhost:3000"   # Development fallback
-    ],
+    allow_origins=["*"],  # Allow all origins - works with any hostname/IP
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
