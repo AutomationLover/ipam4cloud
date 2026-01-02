@@ -41,8 +41,24 @@ if [ ! -f .env ]; then
     fi
 fi
 
+# Check Docker Compose V2 availability
+if ! command -v docker >/dev/null 2>&1; then
+    print_error "Docker is not installed or not in PATH!"
+    print_error "Please install Docker first: https://docs.docker.com/get-docker/"
+    exit 1
+fi
+
+if ! docker compose version >/dev/null 2>&1; then
+    print_error "Docker Compose V2 is not installed or not available!"
+    print_error ""
+    print_error "To install Docker Compose V2 plugin:"
+    print_error "  Ubuntu/Debian: sudo apt-get update && sudo apt-get install docker-compose-plugin"
+    print_error "  Or visit: https://docs.docker.com/compose/install/"
+    exit 1
+fi
+
 # Docker Compose command with env file
-DOCKER_COMPOSE="docker compose -f containers/docker-compose.yml --env-file .env"
+DOCKER_COMPOSE="docker compose --file containers/docker-compose.yml --env-file .env"
 
 # Function to show help
 show_help() {
