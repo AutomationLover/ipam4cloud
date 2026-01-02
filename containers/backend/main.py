@@ -18,7 +18,7 @@ from datetime import datetime
 
 # Add the app directory to Python path to import models
 sys.path.append('/app')
-from models import DatabaseManager, PrefixManager, VRF, VPC, Prefix, IdempotencyRecord
+from models import DatabaseManager, PrefixManager, VRF, VPC, Prefix, IdempotencyRecord, Device42IPAddress
 from data_export_import import DataExporter, DataImporter
 from backup_restore import BackupManager
 from pc_export_import import PCExportImportManager
@@ -1419,6 +1419,118 @@ async def validate_pc_folder(pc_folder: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"PC validation failed: {str(e)}")
 
+
+# Device42 IP Address endpoints
+class IPAddressResponse(BaseModel):
+    id: int
+    device42_id: Optional[str]
+    ip_address: str
+    label: str
+    subnet: Optional[str]
+    type: Optional[str]
+    available: Optional[bool]
+    resource: Optional[str]
+    notes: Optional[str]
+    first_added: Optional[datetime]
+    last_updated: Optional[datetime]
+    port: Optional[str]
+    cloud_account: Optional[str]
+    is_public: Optional[bool]
+    details: Dict[str, Any]
+    created_at: datetime
+    updated_at: datetime
+
+@app.get("/api/ip-addresses", response_model=List[IPAddressResponse])
+async def get_ip_addresses(
+    label: Optional[str] = Query(None, description="Filter by label"),
+    ip_address: Optional[str] = Query(None, description="Filter by exact IP address"),
+    exact: Optional[bool] = Query(False, description="If true, use exact match for label; if false, use partial match (contains)"),
+    limit: Optional[int] = Query(100, description="Maximum number of results to return")
+):
+    """
+    Query IP addresses by label or IP address.
+    
+    Label matching:
+    - If exact=False (default): case-insensitive partial match (contains)
+    - If exact=True: case-insensitive exact match
+    
+    URLs can be shared with label and exact query parameters for easy sharing.
+    Examples:
+    - /api/ip-addresses?label=nat-gateway-prod&exact=true (exact match)
+    - /api/ip-addresses?label=nat-gateway-prod&exact=false (partial match, default)
+    - /api/ip-addresses (no label - returns all IP addresses)
+    """
+    try:
+        with get_db_session_with_http_error_handling(db_manager) as session:
+            query = session.query(Device42IPAddress)
+            
+            # Filter by label if provided
+            if label:
+                if exact:
+                    # Exact match (case-insensitive, no wildcards)
+                    query = query.filter(Device42IPAddress.label.ilike(label))
+                else:
+                    # Partial match (contains, case-insensitive)
+                    query = query.filter(Device42IPAddress.label.ilike(f'%{label}%'))
+            
+            # Filter by exact IP address if provided
+            if ip_address:
+                query = query.filter(Device42IPAddress.ip_address == ip_address)
+            
+            # Order by label and IP address for consistent results
+            query = query.order_by(Device42IPAddress.label, Device42IPAddress.ip_address)
+            
+            # Apply limit
+            if limit:
+                query = query.limit(limit)
+            
+            ip_addresses = query.all()
+            
+            return [IPAddressResponse(
+                id=ip.id,
+                device42_id=ip.device42_id,
+                ip_address=str(ip.ip_address),
+                label=ip.label,
+                subnet=ip.subnet,
+                type=ip.type,
+                available=ip.available,
+                resource=ip.resource,
+                notes=ip.notes,
+                first_added=ip.first_added,
+                last_updated=ip.last_updated,
+                port=ip.port,
+                cloud_account=ip.cloud_account,
+                is_public=ip.is_public,
+                details=ip.details or {},
+                created_at=ip.created_at,
+                updated_at=ip.updated_at
+            ) for ip in ip_addresses]
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to query IP addresses: {str(e)}")
+
+@app.get("/api/ip-addresses/labels", response_model=List[str])
+async def get_ip_address_labels(
+    search: Optional[str] = Query(None, description="Search labels (case-insensitive partial match)")
+):
+    """
+    Get list of all unique labels.
+    Useful for autocomplete or label browsing.
+    """
+    try:
+        with get_db_session_with_http_error_handling(db_manager) as session:
+            query = session.query(Device42IPAddress.label).distinct()
+            
+            if search:
+                query = query.filter(Device42IPAddress.label.ilike(f'%{search}%'))
+            
+            query = query.order_by(Device42IPAddress.label)
+            
+            labels = [row[0] for row in query.all()]
+            return labels
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get labels: {str(e)}")
 
 # Idempotency management endpoints
 @app.get("/api/idempotency/stats")

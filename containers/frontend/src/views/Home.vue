@@ -52,6 +52,21 @@
                 </el-card>
               </el-col>
             </el-row>
+            
+            <el-row :gutter="20" class="feature-cards" style="margin-top: 20px;">
+              <el-col :span="8">
+                <el-card shadow="hover" class="feature-card">
+                  <div class="feature-icon">
+                    <el-icon size="48"><Search /></el-icon>
+                  </div>
+                  <h3>IP Address Query</h3>
+                  <p>Search and query IP addresses by label. Share URLs for specific label queries.</p>
+                  <el-button type="primary" @click="$router.push('/ip-addresses')">
+                    Query IP Addresses
+                  </el-button>
+                </el-card>
+              </el-col>
+            </el-row>
           </div>
         </el-card>
       </el-col>
@@ -83,7 +98,7 @@
 </template>
 
 <script>
-import { List, Connection, Monitor } from '@element-plus/icons-vue'
+import { List, Connection, Monitor, Search } from '@element-plus/icons-vue'
 import { prefixAPI, vrfAPI } from '../api'
 
 export default {
@@ -91,7 +106,8 @@ export default {
   components: {
     List,
     Connection,
-    Monitor
+    Monitor,
+    Search
   },
   data() {
     return {

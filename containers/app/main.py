@@ -14,7 +14,7 @@ import ipaddress
 from pathlib import Path
 from typing import Optional
 from sqlalchemy import text
-from models import DatabaseManager, PrefixManager, VRF, VPC, Prefix
+from models import DatabaseManager, PrefixManager, VRF, VPC, Prefix, Device42IPAddress
 from json_loader import JSONDataLoader
 
 def wait_for_db(db_manager: DatabaseManager, max_retries: int = 30):
@@ -858,6 +858,178 @@ def load_device42_subnets_from_csv(prefix_manager: PrefixManager, csv_file: str 
         
     except Exception as e:
         print(f"❌ Error loading Device42 subnets: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
+
+def load_device42_ipaddresses_from_csv(db_manager: DatabaseManager, csv_file: str = "data/device42_ipaddress.csv", limit: Optional[int] = None):
+    """
+    Load Device42 IP address data from CSV file.
+    Only loads items that contain a string in the "Label" column.
+    
+    Args:
+        db_manager: DatabaseManager instance
+        csv_file: Path to Device42 IP address CSV file
+        limit: Number of records to process (None for all records)
+    """
+    print("\n" + "="*60)
+    print("LOADING: Device42 IP Addresses from CSV")
+    print("="*60)
+    
+    csv_path = Path(csv_file)
+    
+    if not csv_path.exists():
+        print(f"❌ Device42 IP address CSV file not found: {csv_path}")
+        return
+    
+    print(f"📄 Using CSV file: {csv_path}")
+    
+    try:
+        loaded_count = 0
+        skipped_count = 0
+        filtered_count = 0
+        
+        if limit:
+            print(f"\nReading Device42 IP address CSV (processing first {limit} records)...")
+        else:
+            print(f"\nReading Device42 IP address CSV (processing all records)...")
+        
+        with open(csv_path, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row_num, row in enumerate(reader, start=2):  # Start at 2 because row 1 is header
+                if limit and loaded_count >= limit:
+                    break
+                
+                # Get Label field
+                label = row.get('Label', '').strip()
+                
+                # Only load items that contain a string in Label (non-empty)
+                if not label or label == 'None' or label == '':
+                    filtered_count += 1
+                    if row_num <= 10 or row_num % 1000 == 0:
+                        print(f"   ⏭️  Filtering record #{row_num}: Empty Label")
+                    continue
+                
+                # Extract IP address
+                ip_address = row.get('IP_Address', '').strip()
+                if not ip_address or ip_address == 'None':
+                    skipped_count += 1
+                    if row_num <= 10 or row_num % 100 == 0:
+                        print(f"   ⚠️  Skipping record #{row_num}: Missing IP_Address")
+                    continue
+                
+                # Validate IP address format
+                try:
+                    ipaddress.ip_address(ip_address)
+                except ValueError as e:
+                    skipped_count += 1
+                    if row_num <= 10 or row_num % 100 == 0:
+                        print(f"   ⚠️  Skipping record #{row_num}: Invalid IP address {ip_address}: {e}")
+                    continue
+                
+                # Parse other fields
+                device42_id = row.get('id', '').strip() or None
+                subnet = row.get('Subnet', '').strip() or None
+                type_val = row.get('Type', '').strip() or None
+                available = row.get('Available', '').strip()
+                available_bool = None
+                if available and available.lower() in ('true', 'false'):
+                    available_bool = available.lower() == 'true'
+                
+                resource = row.get('Resource', '').strip() or None
+                notes = row.get('Notes', '').strip() or None
+                
+                # Parse timestamps
+                first_added = None
+                last_updated = None
+                try:
+                    first_added_str = row.get('First_added', '').strip()
+                    if first_added_str and first_added_str != 'None':
+                        first_added = datetime.strptime(first_added_str, '%Y-%m-%d %H:%M:%S')
+                except (ValueError, TypeError):
+                    pass
+                
+                try:
+                    last_updated_str = row.get('Last_Updated', '').strip()
+                    if last_updated_str and last_updated_str != 'None':
+                        last_updated = datetime.strptime(last_updated_str, '%Y-%m-%d %H:%M:%S')
+                except (ValueError, TypeError):
+                    pass
+                
+                port = row.get('Port', '').strip() or None
+                cloud_account = row.get('Cloud_Account', '').strip() or None
+                is_public = row.get('Is_Public', '').strip()
+                is_public_bool = None
+                if is_public and is_public.lower() in ('true', 'false'):
+                    is_public_bool = is_public.lower() == 'true'
+                
+                # Parse details JSON if present
+                details = {}
+                details_str = row.get('details', '').strip()
+                if details_str and details_str != 'None' and details_str != '{}':
+                    try:
+                        details = ast.literal_eval(details_str) if details_str else {}
+                    except (ValueError, SyntaxError):
+                        pass
+                
+                # Insert or update IP address
+                with db_manager.get_session() as session:
+                    # Check if IP address with same label already exists
+                    existing = session.query(Device42IPAddress).filter(
+                        Device42IPAddress.ip_address == ip_address,
+                        Device42IPAddress.label == label
+                    ).first()
+                    
+                    if existing:
+                        # Update existing record
+                        existing.device42_id = device42_id
+                        existing.subnet = subnet
+                        existing.type = type_val
+                        existing.available = available_bool
+                        existing.resource = resource
+                        existing.notes = notes
+                        existing.first_added = first_added
+                        existing.last_updated = last_updated
+                        existing.port = port
+                        existing.cloud_account = cloud_account
+                        existing.is_public = is_public_bool
+                        existing.details = details
+                        existing.updated_at = datetime.now()
+                    else:
+                        # Create new record
+                        ip_record = Device42IPAddress(
+                            device42_id=device42_id,
+                            ip_address=ip_address,
+                            label=label,
+                            subnet=subnet,
+                            type=type_val,
+                            available=available_bool,
+                            resource=resource,
+                            notes=notes,
+                            first_added=first_added,
+                            last_updated=last_updated,
+                            port=port,
+                            cloud_account=cloud_account,
+                            is_public=is_public_bool,
+                            details=details
+                        )
+                        session.add(ip_record)
+                    
+                    session.commit()
+                    loaded_count += 1
+                    
+                    if loaded_count <= 10 or loaded_count % 100 == 0:
+                        print(f"   ✓ Loaded record #{loaded_count}: {ip_address} (Label: {label})")
+        
+        print(f"\n✅ Successfully processed IP addresses")
+        print(f"   ✓ Loaded/Updated: {loaded_count} IP addresses")
+        print(f"   ⏭️  Filtered (empty Label): {filtered_count}")
+        if skipped_count > 0:
+            print(f"   ⚠️  Skipped: {skipped_count} records (missing data or invalid IP)")
+        return loaded_count
+        
+    except Exception as e:
+        print(f"❌ Error loading Device42 IP addresses: {e}")
         import traceback
         traceback.print_exc()
         raise

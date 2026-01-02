@@ -1,7 +1,7 @@
 from sqlalchemy import create_engine, Column, String, Boolean, Integer, DateTime, Text, ForeignKey, UniqueConstraint, CheckConstraint, text, Index
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
-from sqlalchemy.dialects.postgresql import UUID, CIDR, JSONB
+from sqlalchemy.dialects.postgresql import UUID, CIDR, JSONB, INET
 from sqlalchemy.sql import func
 import uuid
 import json
@@ -136,6 +136,41 @@ class IdempotencyRecord(Base):
         # Sort parameters to ensure consistent hashing
         sorted_params = json.dumps(params, sort_keys=True, default=str)
         return hashlib.sha256(sorted_params.encode()).hexdigest()
+
+class Device42IPAddress(Base):
+    """
+    Device42 IP Address table for storing IP addresses with labels.
+    Independent from subnet/prefix management.
+    """
+    __tablename__ = 'device42_ipaddress'
+    
+    id = Column(Integer, primary_key=True)
+    device42_id = Column(String)
+    ip_address = Column(INET, nullable=False)
+    label = Column(String, nullable=False)
+    subnet = Column(String)
+    type = Column(String)
+    available = Column(Boolean)
+    resource = Column(String)
+    notes = Column(Text)  # Contains NET ticket IDs for tracking
+    first_added = Column(DateTime)
+    last_updated = Column(DateTime)
+    port = Column(String)
+    cloud_account = Column(String)
+    is_public = Column(Boolean)
+    details = Column(JSONB, default={}, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    
+    __table_args__ = (
+        Index('idx_device42_ipaddress_label', 'label'),
+        Index('idx_device42_ipaddress_ip', 'ip_address'),
+        Index('idx_device42_ipaddress_label_ip', 'label', 'ip_address'),
+        Index('idx_device42_ipaddress_device42_id', 'device42_id'),
+    )
+    
+    def __repr__(self):
+        return f"<Device42IPAddress(id={self.id}, ip_address='{self.ip_address}', label='{self.label}')>"
 
 class DatabaseManager:
     def __init__(self, database_url: str):

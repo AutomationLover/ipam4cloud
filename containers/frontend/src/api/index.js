@@ -164,5 +164,27 @@ export const pcExportImportAPI = {
   })
 }
 
+// Device42 IP Address API
+export const ipAddressAPI = {
+  // Get IP addresses by label (supports exact and partial match)
+  // If label is null/empty, returns all IP addresses
+  getIPAddresses: (label = null, ipAddress = null, limit = 100, exact = false) => {
+    const params = {}
+    if (label) params.label = label
+    if (ipAddress) params.ip_address = ipAddress
+    if (limit) params.limit = limit
+    // Only set exact if label is provided
+    if (label) params.exact = exact
+    return api.get('/api/ip-addresses', { params })
+  },
+  
+  // Get list of all unique labels
+  getLabels: (search = null) => {
+    const params = {}
+    if (search) params.search = search
+    return api.get('/api/ip-addresses/labels', { params })
+  }
+}
+
 
 export default api

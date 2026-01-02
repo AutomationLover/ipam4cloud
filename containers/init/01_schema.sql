@@ -230,6 +230,37 @@ BEGIN
 END
 $$ LANGUAGE plpgsql;
 
+-- Device42 IP Address table
+CREATE TABLE device42_ipaddress (
+  id SERIAL PRIMARY KEY,
+  device42_id TEXT,
+  ip_address INET NOT NULL,
+  label TEXT NOT NULL,
+  subnet TEXT,
+  type TEXT,
+  available BOOLEAN,
+  resource TEXT,
+  notes TEXT,
+  first_added TIMESTAMP,
+  last_updated TIMESTAMP,
+  port TEXT,
+  cloud_account TEXT,
+  is_public BOOLEAN,
+  details JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Indexes for device42_ipaddress
+CREATE INDEX idx_device42_ipaddress_label ON device42_ipaddress (label);
+CREATE INDEX idx_device42_ipaddress_ip ON device42_ipaddress (ip_address);
+CREATE INDEX idx_device42_ipaddress_label_ip ON device42_ipaddress (label, ip_address);
+CREATE INDEX idx_device42_ipaddress_device42_id ON device42_ipaddress (device42_id) WHERE device42_id IS NOT NULL;
+
+-- Trigger for updated_at timestamp
+CREATE TRIGGER device42_ipaddress_set_updated BEFORE UPDATE ON device42_ipaddress
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
 -- Convenience view for tree rendering
 CREATE VIEW prefix_tree AS
 SELECT

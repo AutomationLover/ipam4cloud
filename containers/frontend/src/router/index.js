@@ -8,6 +8,7 @@ import VPCs from '../views/VPCs.vue'
 import VPCDetail from '../views/VPCDetail.vue'
 import BackupRestore from '../views/BackupRestore.vue'
 import PCExportImport from '../views/PCExportImport.vue'
+import IPAddresses from '../views/IPAddresses.vue'
 
 const routes = [
   // Management interface routes
@@ -55,6 +56,11 @@ const routes = [
     path: '/pc-export-import',
     name: 'PCExportImport',
     component: PCExportImport
+  },
+  {
+    path: '/ip-addresses',
+    name: 'IPAddresses',
+    component: IPAddresses
   }
 ]
 

@@ -26,6 +26,10 @@
             <el-icon><Monitor /></el-icon>
             <span>VPCs</span>
           </el-menu-item>
+          <el-menu-item index="/ip-addresses">
+            <el-icon><Search /></el-icon>
+            <span>IP Addresses</span>
+          </el-menu-item>
           <el-sub-menu index="data-management">
             <template #title>
               <el-icon><Download /></el-icon>
@@ -50,7 +54,7 @@
 </template>
 
 <script>
-import { Grid, List, Connection, Monitor, Download, Clock, FolderOpened } from '@element-plus/icons-vue'
+import { Grid, List, Connection, Monitor, Download, Clock, FolderOpened, Search } from '@element-plus/icons-vue'
 
 export default {
   name: 'App',
@@ -61,7 +65,8 @@ export default {
     Monitor,
     Download,
     Clock,
-    FolderOpened
+    FolderOpened,
+    Search
   },
   methods: {
     // Reserved for future methods
