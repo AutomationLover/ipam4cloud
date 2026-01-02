@@ -60,7 +60,9 @@ services:
       - ./frontend:/app
       - /app/node_modules
     environment:
-      - VUE_APP_API_URL=http://localhost:8000
+      # Empty string means use dynamic detection (same host, port 8000)
+      # Or set to specific URL if needed: http://your-server-ip:8000
+      - VUE_APP_API_URL=
 
   readonly-frontend:
     build: ./frontend-readonly
@@ -73,7 +75,9 @@ services:
       - ./frontend-readonly:/app
       - /app/node_modules
     environment:
-      - VUE_APP_API_URL=http://localhost:8000
+      # Empty string means use dynamic detection (same host, port 8000)
+      # Or set to specific URL if needed: http://your-server-ip:8000
+      - VUE_APP_API_URL=
 
   aws-sync:
     image: python:3.11-slim
