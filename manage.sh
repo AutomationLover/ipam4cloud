@@ -58,7 +58,8 @@ if ! docker compose version >/dev/null 2>&1; then
 fi
 
 # Docker Compose command with env file
-DOCKER_COMPOSE="docker compose --file containers/docker-compose.yml --env-file .env"
+# Use --project-directory to set the build context correctly
+DOCKER_COMPOSE="docker compose --project-directory containers --file containers/docker-compose.yml --env-file .env"
 
 # Function to show help
 show_help() {

@@ -1121,6 +1121,9 @@ def main():
         # Step 5: Load Device42 subnets (all records)
         load_device42_subnets_from_csv(prefix_manager, csv_file="data/device42_subnet.csv", limit=None)
         
+        # Step 5.5: Load Device42 IP addresses (only items with Label)
+        load_device42_ipaddresses_from_csv(db_manager, csv_file="data/device42_ipaddress.csv", limit=None)
+        
         # Step 6: Run demonstration queries (using VPCs by provider ID for compatibility)
         vpc1 = created_vpcs.get('vpc-0abc1234')
         vpc2 = created_vpcs.get('vpc-0def5678')
