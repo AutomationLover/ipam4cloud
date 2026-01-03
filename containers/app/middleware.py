@@ -12,7 +12,7 @@ import uuid
 import time
 import json
 from typing import Callable, Optional
-from fastapi import Request, Response
+from fastapi import Request, Response, HTTPException
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
@@ -159,6 +159,10 @@ class ErrorHandlingMiddleware(BaseHTTPMiddleware):
         try:
             response = await call_next(request)
             return response
+        except HTTPException:
+            # Let FastAPI handle HTTPException (e.g., 409 Conflict, 400 Bad Request)
+            # FastAPI will automatically convert it to the appropriate HTTP response
+            raise
         except Exception as e:
             request_id = getattr(request.state, 'request_id', None)
             

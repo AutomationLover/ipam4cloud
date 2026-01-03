@@ -266,6 +266,9 @@ class IdempotencyManager:
                     'request_id': request_id
                 }
             )
+        except HTTPException:
+            # Let HTTPException propagate (e.g., from processor_func)
+            raise
         except Exception as e:
             # Don't store failed requests in idempotency cache
             raise e

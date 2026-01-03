@@ -622,6 +622,9 @@ async def allocate_subnet(
         
         return response_data
         
+    except HTTPException:
+        # Re-raise HTTPException (e.g., 409 Conflict from idempotency)
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
