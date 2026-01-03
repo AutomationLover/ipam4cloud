@@ -11,14 +11,14 @@ When a request includes a request_id:
 Features:
 - Automatic UUID generation for requests without request_id
 - Parameter hashing for efficient comparison
-- TTL-based cleanup of old records
+- Permanent idempotency records (no expiration)
 - Thread-safe operations
 """
 
 import uuid
 import json
 import hashlib
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any, Tuple
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
@@ -42,9 +42,8 @@ class IdempotencyService:
     Service for handling idempotent API requests
     """
     
-    def __init__(self, db_manager: DatabaseManager, default_ttl_hours: int = 24):
+    def __init__(self, db_manager: DatabaseManager):
         self.db_manager = db_manager
-        self.default_ttl_hours = default_ttl_hours
     
     def generate_request_id(self) -> str:
         """Generate a new UUID for requests without request_id"""
@@ -106,13 +105,6 @@ class IdempotencyService:
             if not existing_record:
                 return None
             
-            # Check if record has expired
-            if existing_record.expires_at < datetime.utcnow():
-                # Clean up expired record
-                session.delete(existing_record)
-                session.commit()
-                return None
-            
             # Verify endpoint and method match
             if existing_record.endpoint != endpoint or existing_record.method != method:
                 raise ParameterMismatchError(
@@ -146,11 +138,11 @@ class IdempotencyService:
         method: str,
         request_params: Dict[str, Any],
         response_data: Any,
-        status_code: int,
-        ttl_hours: Optional[int] = None
+        status_code: int
     ) -> None:
         """
         Store the response for future idempotency checks.
+        Records are kept permanently and never expire.
         
         Args:
             request_id: Unique identifier for the request
@@ -159,15 +151,14 @@ class IdempotencyService:
             request_params: Request parameters
             response_data: Response to cache
             status_code: HTTP status code
-            ttl_hours: Time to live in hours (uses default if None)
         """
         session = self.db_manager.get_session()
         try:
-            ttl = ttl_hours or self.default_ttl_hours
-            expires_at = datetime.utcnow() + timedelta(hours=ttl)
-            
             # Serialize response data
             serialized_response = self._serialize_for_storage(response_data)
+            
+            # Set expires_at to far future (required by DB schema, but not checked)
+            expires_at = datetime.now(timezone.utc) + timedelta(days=36500)  # ~100 years
             
             # Create idempotency record
             record = IdempotencyRecord(
@@ -190,23 +181,6 @@ class IdempotencyService:
         finally:
             session.close()
     
-    def cleanup_expired_records(self) -> int:
-        """
-        Clean up expired idempotency records.
-        
-        Returns:
-            Number of records deleted
-        """
-        session = self.db_manager.get_session()
-        try:
-            deleted_count = session.query(IdempotencyRecord).filter(
-                IdempotencyRecord.expires_at < datetime.utcnow()
-            ).delete()
-            session.commit()
-            return deleted_count
-        finally:
-            session.close()
-    
     def get_record_stats(self) -> Dict[str, Any]:
         """
         Get statistics about idempotency records.
@@ -217,14 +191,9 @@ class IdempotencyService:
         session = self.db_manager.get_session()
         try:
             total_records = session.query(IdempotencyRecord).count()
-            expired_records = session.query(IdempotencyRecord).filter(
-                IdempotencyRecord.expires_at < datetime.utcnow()
-            ).count()
             
             return {
-                'total_records': total_records,
-                'active_records': total_records - expired_records,
-                'expired_records': expired_records
+                'total_records': total_records
             }
         finally:
             session.close()

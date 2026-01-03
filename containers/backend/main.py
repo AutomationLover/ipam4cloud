@@ -176,7 +176,7 @@ db_manager.create_tables()
 prefix_manager = PrefixManager(db_manager)
 
 # Initialize idempotency service
-idempotency_service = IdempotencyService(db_manager, default_ttl_hours=24)
+idempotency_service = IdempotencyService(db_manager)
 idempotency_manager = IdempotencyManager(idempotency_service)
 
 def get_prefix_manager():

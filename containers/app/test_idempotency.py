@@ -32,7 +32,7 @@ class TestIdempotencyService:
     @pytest.fixture
     def idempotency_service(self, db_manager):
         """Create IdempotencyService instance for testing"""
-        return IdempotencyService(db_manager, default_ttl_hours=1)
+        return IdempotencyService(db_manager)
     
     def test_generate_request_id(self, idempotency_service):
         """Test request ID generation"""
@@ -163,63 +163,16 @@ class TestIdempotencyService:
         
         assert "previously used for" in str(exc_info.value)
     
-    def test_expired_record_cleanup(self, idempotency_service):
-        """Test cleanup of expired records"""
-        request_id = str(uuid.uuid4())
-        
-        # Store response with short TTL
-        idempotency_service.store_response(
-            request_id=request_id,
-            endpoint="/api/test",
-            method="POST",
-            request_params={"test": "value"},
-            response_data={"status": "created"},
-            status_code=201,
-            ttl_hours=0.001  # Very short TTL for testing
-        )
-        
-        # Wait for expiration (simulate)
-        import time
-        time.sleep(0.1)
-        
-        # Check that expired record is not returned
-        result = idempotency_service.check_idempotency(
-            request_id=request_id,
-            endpoint="/api/test",
-            method="POST",
-            request_params={"test": "value"}
-        )
-        assert result is None
-    
-    def test_cleanup_expired_records(self, idempotency_service):
-        """Test manual cleanup of expired records"""
-        # Create some expired records
-        for i in range(3):
-            request_id = str(uuid.uuid4())
-            idempotency_service.store_response(
-                request_id=request_id,
-                endpoint="/api/test",
-                method="POST",
-                request_params={"test": f"value{i}"},
-                response_data={"status": "created"},
-                status_code=201,
-                ttl_hours=-1  # Already expired
-            )
-        
-        # Cleanup expired records
-        deleted_count = idempotency_service.cleanup_expired_records()
-        assert deleted_count == 3
+    # Expiration tests removed - idempotency records are now permanent
     
     def test_get_record_stats(self, idempotency_service):
         """Test getting idempotency record statistics"""
         # Initially no records
         stats = idempotency_service.get_record_stats()
         assert stats['total_records'] == 0
-        assert stats['active_records'] == 0
-        assert stats['expired_records'] == 0
         
         # Add some records
-        for i in range(2):
+        for i in range(3):
             request_id = str(uuid.uuid4())
             idempotency_service.store_response(
                 request_id=request_id,
@@ -230,22 +183,8 @@ class TestIdempotencyService:
                 status_code=201
             )
         
-        # Add expired record
-        expired_request_id = str(uuid.uuid4())
-        idempotency_service.store_response(
-            request_id=expired_request_id,
-            endpoint="/api/test",
-            method="POST",
-            request_params={"test": "expired"},
-            response_data={"status": "created"},
-            status_code=201,
-            ttl_hours=-1
-        )
-        
         stats = idempotency_service.get_record_stats()
         assert stats['total_records'] == 3
-        assert stats['active_records'] == 2
-        assert stats['expired_records'] == 1
 
 
 class TestIdempotencyManager:
@@ -261,7 +200,7 @@ class TestIdempotencyManager:
     @pytest.fixture
     def idempotency_service(self, db_manager):
         """Create IdempotencyService instance for testing"""
-        return IdempotencyService(db_manager, default_ttl_hours=1)
+        return IdempotencyService(db_manager)
     
     @pytest.fixture
     def idempotency_manager(self, idempotency_service):
