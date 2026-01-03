@@ -9,7 +9,9 @@ module.exports = {
   ],
   parserOptions: {
     parser: '@babel/eslint-parser',
-    requireConfigFile: true  // Allow ESLint to read babel.config.js to find presets
+    requireConfigFile: false,
+    ecmaVersion: 2020,
+    sourceType: 'module'
   },
   rules: {
     'no-console': process.env.NODE_ENV === 'production' ? 'warn' : 'off',
