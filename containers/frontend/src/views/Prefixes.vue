@@ -909,6 +909,8 @@ export default {
       // This prevents infinite loops when updateUrl() triggers route changes
       if (!this.isLoadingFromUrl && JSON.stringify(newQuery) !== JSON.stringify(oldQuery)) {
         this.loadFiltersFromUrl()
+        // Handle action query parameters if present
+        this.handleActionQueryParams()
         this.loadData()
       }
     },
@@ -945,6 +947,9 @@ export default {
     
     // Handle query parameters for filtering
     this.loadFiltersFromUrl()
+    
+    // Handle action query parameters (edit, createChild, associateVPC)
+    await this.handleActionQueryParams()
     
     await this.loadData()
   },
@@ -1114,6 +1119,59 @@ export default {
       }
       
       this.isLoadingFromUrl = false
+    },
+    
+    // Handle action query parameters (edit, createChild, associateVPC)
+    async handleActionQueryParams() {
+      const query = this.$route.query
+      
+      // Handle edit action
+      if (query.edit) {
+        try {
+          const response = await prefixAPI.getPrefix(query.edit)
+          const prefix = response.data
+          await this.editPrefix(prefix)
+          // Remove edit param from URL after opening dialog
+          const newQuery = { ...this.$route.query }
+          delete newQuery.edit
+          this.$router.replace({ query: newQuery })
+        } catch (error) {
+          console.error('Failed to load prefix for editing:', error)
+          ElMessage.error('Failed to load prefix for editing: ' + (error.response?.data?.detail || error.message))
+        }
+      }
+      
+      // Handle createChild action
+      if (query.createChild) {
+        try {
+          const response = await prefixAPI.getPrefix(query.createChild)
+          const parentPrefix = response.data
+          await this.createChildPrefix(parentPrefix)
+          // Remove createChild param from URL after opening dialog
+          const newQuery = { ...this.$route.query }
+          delete newQuery.createChild
+          this.$router.replace({ query: newQuery })
+        } catch (error) {
+          console.error('Failed to load parent prefix:', error)
+          ElMessage.error('Failed to load parent prefix: ' + (error.response?.data?.detail || error.message))
+        }
+      }
+      
+      // Handle associateVPC action
+      if (query.associateVPC) {
+        try {
+          const response = await prefixAPI.getPrefix(query.associateVPC)
+          const prefix = response.data
+          await this.associateVPC(prefix)
+          // Remove associateVPC param from URL after opening dialog
+          const newQuery = { ...this.$route.query }
+          delete newQuery.associateVPC
+          this.$router.replace({ query: newQuery })
+        } catch (error) {
+          console.error('Failed to load prefix for VPC association:', error)
+          ElMessage.error('Failed to load prefix for VPC association: ' + (error.response?.data?.detail || error.message))
+        }
+      }
     },
     
     // Update URL with current filter values

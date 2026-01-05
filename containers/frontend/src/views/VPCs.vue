@@ -230,6 +230,9 @@ export default {
   async mounted() {
     await this.loadVPCs()
     await this.loadSubnetCounts()
+    
+    // Handle action query parameters (edit)
+    await this.handleActionQueryParams()
   },
   methods: {
     async loadVPCs() {
@@ -322,6 +325,27 @@ export default {
         console.error(error)
       } finally {
         this.creating = false
+      }
+    },
+
+    // Handle action query parameters (edit)
+    async handleActionQueryParams() {
+      const query = this.$route.query
+      
+      // Handle edit action
+      if (query.edit) {
+        try {
+          const response = await vpcAPI.getVPC(query.edit)
+          const vpc = response.data
+          this.editVPC(vpc)
+          // Remove edit param from URL after opening dialog
+          const newQuery = { ...this.$route.query }
+          delete newQuery.edit
+          this.$router.replace({ query: newQuery })
+        } catch (error) {
+          console.error('Failed to load VPC for editing:', error)
+          ElMessage.error('Failed to load VPC for editing: ' + (error.response?.data?.detail || error.message))
+        }
       }
     },
 

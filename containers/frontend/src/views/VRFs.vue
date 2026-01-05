@@ -244,6 +244,9 @@ export default {
   async mounted() {
     await this.loadVRFs()
     await this.loadPrefixCounts()
+    
+    // Handle action query parameters (edit)
+    await this.handleActionQueryParams()
   },
   methods: {
     async loadVRFs() {
@@ -292,6 +295,27 @@ export default {
       this.isEditing = false
       this.resetForm()
       this.showDialog = true
+    },
+
+    // Handle action query parameters (edit)
+    async handleActionQueryParams() {
+      const query = this.$route.query
+      
+      // Handle edit action
+      if (query.edit) {
+        try {
+          const response = await vrfAPI.getVRF(query.edit)
+          const vrf = response.data
+          this.editVRF(vrf)
+          // Remove edit param from URL after opening dialog
+          const newQuery = { ...this.$route.query }
+          delete newQuery.edit
+          this.$router.replace({ query: newQuery })
+        } catch (error) {
+          console.error('Failed to load VRF for editing:', error)
+          ElMessage.error('Failed to load VRF for editing: ' + (error.response?.data?.detail || error.message))
+        }
+      }
     },
 
     editVRF(vrf) {
