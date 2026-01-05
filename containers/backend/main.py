@@ -4,7 +4,7 @@ FastAPI Backend for Prefix Management System
 Provides REST API endpoints for the Vue.js frontend
 """
 
-from fastapi import FastAPI, HTTPException, Depends, Query, Request
+from fastapi import FastAPI, HTTPException, Depends, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
@@ -1445,46 +1445,64 @@ async def get_ip_addresses(
     label: Optional[str] = Query(None, description="Filter by label"),
     ip_address: Optional[str] = Query(None, description="Filter by exact IP address"),
     exact: Optional[bool] = Query(False, description="If true, use exact match for label; if false, use partial match (contains)"),
-    limit: Optional[int] = Query(100, description="Maximum number of results to return")
+    limit: Optional[int] = Query(100, description="Maximum number of results to return"),
+    offset: Optional[int] = Query(0, description="Number of results to skip for pagination"),
+    response: Response = Response()
 ):
     """
-    Query IP addresses by label or IP address.
+    Query IP addresses by label or IP address with pagination support.
     
     Label matching:
     - If exact=False (default): case-insensitive partial match (contains)
     - If exact=True: case-insensitive exact match
     
+    Pagination:
+    - Use offset and limit for pagination (e.g., offset=0&limit=100 for first page, offset=100&limit=100 for second page)
+    - Total count is returned in X-Total-Count header
+    
     URLs can be shared with label and exact query parameters for easy sharing.
     Examples:
     - /api/ip-addresses?label=nat-gateway-prod&exact=true (exact match)
     - /api/ip-addresses?label=nat-gateway-prod&exact=false (partial match, default)
+    - /api/ip-addresses?offset=0&limit=100 (first page)
     - /api/ip-addresses (no label - returns all IP addresses)
     """
     try:
         with get_db_session_with_http_error_handling(db_manager) as session:
-            query = session.query(Device42IPAddress)
+            # Build base query for filtering
+            base_query = session.query(Device42IPAddress)
             
             # Filter by label if provided
             if label:
                 if exact:
                     # Exact match (case-insensitive, no wildcards)
-                    query = query.filter(Device42IPAddress.label.ilike(label))
+                    base_query = base_query.filter(Device42IPAddress.label.ilike(label))
                 else:
                     # Partial match (contains, case-insensitive)
-                    query = query.filter(Device42IPAddress.label.ilike(f'%{label}%'))
+                    base_query = base_query.filter(Device42IPAddress.label.ilike(f'%{label}%'))
             
             # Filter by exact IP address if provided
             if ip_address:
-                query = query.filter(Device42IPAddress.ip_address == ip_address)
+                base_query = base_query.filter(Device42IPAddress.ip_address == ip_address)
             
-            # Order by label and IP address for consistent results
-            query = query.order_by(Device42IPAddress.label, Device42IPAddress.ip_address)
+            # Get total count before applying limit/offset
+            total_count = base_query.count()
+            
+            # Apply ordering, offset, and limit
+            query = base_query.order_by(Device42IPAddress.label, Device42IPAddress.ip_address)
+            
+            # Apply offset
+            if offset and offset > 0:
+                query = query.offset(offset)
             
             # Apply limit
             if limit:
                 query = query.limit(limit)
             
             ip_addresses = query.all()
+            
+            # Set total count in response header
+            response.headers["X-Total-Count"] = str(total_count)
             
             return [IPAddressResponse(
                 id=ip.id,

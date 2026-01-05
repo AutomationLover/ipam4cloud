@@ -183,11 +183,14 @@ export const pcExportImportAPI = {
 export const ipAddressAPI = {
   // Get IP addresses by label (supports exact and partial match)
   // If label is null/empty, returns all IP addresses
-  getIPAddresses: (label = null, ipAddress = null, limit = 100, exact = false) => {
+  // Supports pagination with offset and limit
+  getIPAddresses: (label = null, ipAddress = null, limit = 100, exact = false, offset = 0) => {
     const params = {}
     if (label) params.label = label
     if (ipAddress) params.ip_address = ipAddress
     if (limit) params.limit = limit
+    // Always include offset (can be 0 for first page)
+    params.offset = offset
     // Only set exact if label is provided
     if (label) params.exact = exact
     return api.get('/api/ip-addresses', { params })

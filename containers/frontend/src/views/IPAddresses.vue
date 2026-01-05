@@ -214,10 +214,19 @@ export default {
     const pageSize = ref(100)
     const totalCount = ref(0)
     
-    // Check for label and exact parameter in URL query parameter
+      // Check for label and exact parameter in URL query parameter
     onMounted(() => {
       const labelFromUrl = route.query.label
       const exactFromUrl = route.query.exact
+      const pageFromUrl = route.query.page
+      
+      // Parse page parameter if provided
+      if (pageFromUrl) {
+        const pageNum = parseInt(pageFromUrl, 10)
+        if (pageNum > 0) {
+          currentPage.value = pageNum
+        }
+      }
       
       if (labelFromUrl) {
         labelQuery.value = labelFromUrl
@@ -244,6 +253,15 @@ export default {
         if (exactFromUrl !== undefined) {
           matchMode.value = exactFromUrl === 'true' || exactFromUrl === true
         }
+        const pageFromUrl = route.query.page
+        if (pageFromUrl) {
+          const pageNum = parseInt(pageFromUrl, 10)
+          if (pageNum > 0) {
+            currentPage.value = pageNum
+          }
+        } else {
+          currentPage.value = 1
+        }
         searchIPAddresses()
       }
     })
@@ -251,12 +269,28 @@ export default {
     watch(() => route.query.exact, (newExact) => {
       if (newExact !== undefined && route.query.label) {
         matchMode.value = newExact === 'true' || newExact === true
+        currentPage.value = 1 // Reset to first page when changing match mode
         searchIPAddresses()
+      }
+    })
+    
+    watch(() => route.query.page, (newPage) => {
+      if (newPage) {
+        const pageNum = parseInt(newPage, 10)
+        if (pageNum > 0 && pageNum !== currentPage.value) {
+          currentPage.value = pageNum
+          if (currentLabel.value) {
+            searchIPAddresses()
+          } else {
+            loadAllIPAddresses()
+          }
+        }
       }
     })
     
     const handleMatchModeChange = () => {
       if (currentLabel.value) {
+        currentPage.value = 1 // Reset to first page when changing match mode
         searchIPAddresses()
       }
     }
@@ -278,6 +312,7 @@ export default {
     
     const handleLabelSelect = (item) => {
       labelQuery.value = item.value
+      currentPage.value = 1 // Reset to first page when selecting a label
       searchIPAddresses()
     }
     
@@ -285,6 +320,7 @@ export default {
       currentLabel.value = ''
       labelQuery.value = ''
       matchMode.value = false
+      currentPage.value = 1 // Reset to first page when clearing
       loadAllIPAddresses()
     }
     
@@ -294,17 +330,27 @@ export default {
       updateUrl('', false)
       
       try {
-        const response = await ipAddressAPI.getIPAddresses(null, null, pageSize.value, false)
+        const offset = (currentPage.value - 1) * pageSize.value
+        const response = await ipAddressAPI.getIPAddresses(null, null, pageSize.value, false, offset)
         ipAddresses.value = response.data
-        totalCount.value = response.data.length
+        
+        // Get total count from response header
+        const totalCountHeader = response.headers['x-total-count']
+        if (totalCountHeader) {
+          totalCount.value = parseInt(totalCountHeader, 10)
+        } else {
+          // Fallback to response data length if header not available
+          totalCount.value = response.data.length
+        }
         
         if (ipAddresses.value.length > 0) {
-          ElMessage.success(`Loaded ${ipAddresses.value.length} IP address(es)`)
+          ElMessage.success(`Loaded ${ipAddresses.value.length} IP address(es) (page ${currentPage.value})`)
         }
       } catch (error) {
         console.error('Error loading IP addresses:', error)
         ElMessage.error('Failed to load IP addresses: ' + (error.response?.data?.detail || error.message))
         ipAddresses.value = []
+        totalCount.value = 0
       } finally {
         loading.value = false
       }
@@ -313,6 +359,7 @@ export default {
     const searchIPAddresses = async () => {
       if (!labelQuery.value || !labelQuery.value.trim()) {
         // If no label provided, load all IP addresses
+        currentPage.value = 1 // Reset to first page
         loadAllIPAddresses()
         return
       }
@@ -322,19 +369,29 @@ export default {
       updateUrl(currentLabel.value, matchMode.value)
       
       try {
-        const response = await ipAddressAPI.getIPAddresses(currentLabel.value, null, pageSize.value, matchMode.value)
+        const offset = (currentPage.value - 1) * pageSize.value
+        const response = await ipAddressAPI.getIPAddresses(currentLabel.value, null, pageSize.value, matchMode.value, offset)
         ipAddresses.value = response.data
-        totalCount.value = response.data.length
+        
+        // Get total count from response header
+        const totalCountHeader = response.headers['x-total-count']
+        if (totalCountHeader) {
+          totalCount.value = parseInt(totalCountHeader, 10)
+        } else {
+          // Fallback to response data length if header not available
+          totalCount.value = response.data.length
+        }
         
         if (ipAddresses.value.length === 0) {
           ElMessage.info(`No IP addresses found for label: ${currentLabel.value} (${matchMode.value ? 'exact' : 'partial'} match)`)
         } else {
-          ElMessage.success(`Found ${ipAddresses.value.length} IP address(es) (${matchMode.value ? 'exact' : 'partial'} match)`)
+          ElMessage.success(`Found ${totalCount.value} total IP address(es), showing ${ipAddresses.value.length} on page ${currentPage.value} (${matchMode.value ? 'exact' : 'partial'} match)`)
         }
       } catch (error) {
         console.error('Error searching IP addresses:', error)
         ElMessage.error('Failed to search IP addresses: ' + (error.response?.data?.detail || error.message))
         ipAddresses.value = []
+        totalCount.value = 0
       } finally {
         loading.value = false
       }
@@ -344,15 +401,20 @@ export default {
       labelQuery.value = ''
       currentLabel.value = ''
       matchMode.value = false
+      currentPage.value = 1 // Reset to first page when clearing search
       loadAllIPAddresses()
     }
     
     const updateUrl = (label, exact = false) => {
+      const query = {}
       if (label) {
-        router.push({ query: { label, exact: exact.toString() } })
-      } else {
-        router.push({ query: {} })
+        query.label = label
+        query.exact = exact.toString()
       }
+      if (currentPage.value > 1) {
+        query.page = currentPage.value.toString()
+      }
+      router.push({ query })
     }
     
     const copyShareableUrl = () => {
@@ -436,8 +498,13 @@ export default {
     
     const handlePageChange = (page) => {
       currentPage.value = page
-      // In a real implementation, you might want to fetch more data
-      // For now, we'll just scroll to top
+      // Fetch data for the new page
+      if (currentLabel.value) {
+        searchIPAddresses()
+      } else {
+        loadAllIPAddresses()
+      }
+      // Scroll to top after page change
       window.scrollTo({ top: 0, behavior: 'smooth' })
     }
     
