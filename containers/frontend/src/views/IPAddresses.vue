@@ -81,14 +81,22 @@
       <div v-else-if="ipAddresses.length > 0">
         <div class="results-header">
           <h3>
-            {{ currentLabel ? 'Found' : 'Showing' }} {{ ipAddresses.length }} IP address{{ ipAddresses.length !== 1 ? 'es' : '' }}
+            <span v-if="totalCount > 0">
+              {{ currentLabel ? 'Found' : 'Showing' }} {{ totalCount }} total IP address{{ totalCount !== 1 ? 'es' : '' }}
+              <span v-if="totalCount > pageSize">
+                (showing {{ ipAddresses.length }} on page {{ currentPage }} of {{ Math.ceil(totalCount / pageSize) }})
+              </span>
+            </span>
+            <span v-else>
+              {{ ipAddresses.length }} IP address{{ ipAddresses.length !== 1 ? 'es' : '' }}
+            </span>
             <span v-if="currentLabel">
               for label: <strong>{{ currentLabel }}</strong>
               <el-tag :type="matchMode ? 'success' : 'info'" size="small" style="margin-left: 8px;">
                 {{ matchMode ? 'Exact Match' : 'Contains' }}
               </el-tag>
             </span>
-            <span v-else>
+            <span v-else-if="!currentLabel && totalCount > 0">
               (all IP addresses)
             </span>
           </h3>
@@ -170,7 +178,7 @@
         </el-table>
         
         <el-pagination
-          v-if="totalCount > pageSize"
+          v-if="totalCount >= pageSize"
           v-model:current-page="currentPage"
           :page-size="pageSize"
           :total="totalCount"
@@ -334,17 +342,26 @@ export default {
         const response = await ipAddressAPI.getIPAddresses(null, null, pageSize.value, false, offset)
         ipAddresses.value = response.data
         
-        // Get total count from response header
-        const totalCountHeader = response.headers['x-total-count']
+        // Get total count from response header (case-insensitive)
+        // Axios normalizes headers to lowercase, so check both cases
+        const totalCountHeader = response.headers['x-total-count'] || 
+                                 response.headers['X-Total-Count'] ||
+                                 (response.headers && Object.keys(response.headers).find(key => key.toLowerCase() === 'x-total-count') && response.headers[Object.keys(response.headers).find(key => key.toLowerCase() === 'x-total-count')])
         if (totalCountHeader) {
           totalCount.value = parseInt(totalCountHeader, 10)
         } else {
-          // Fallback to response data length if header not available
-          totalCount.value = response.data.length
+          // Fallback: if we got a full page, assume there are more
+          // Otherwise use response data length
+          if (response.data.length === pageSize.value) {
+            // Likely more pages exist, set a minimum total
+            totalCount.value = Math.max(pageSize.value + 1, response.data.length)
+          } else {
+            totalCount.value = response.data.length
+          }
         }
         
         if (ipAddresses.value.length > 0) {
-          ElMessage.success(`Loaded ${ipAddresses.value.length} IP address(es) (page ${currentPage.value})`)
+          ElMessage.success(`Loaded ${totalCount.value} total IP address(es), showing ${ipAddresses.value.length} on page ${currentPage.value}`)
         }
       } catch (error) {
         console.error('Error loading IP addresses:', error)
@@ -373,13 +390,22 @@ export default {
         const response = await ipAddressAPI.getIPAddresses(currentLabel.value, null, pageSize.value, matchMode.value, offset)
         ipAddresses.value = response.data
         
-        // Get total count from response header
-        const totalCountHeader = response.headers['x-total-count']
+        // Get total count from response header (case-insensitive)
+        // Axios normalizes headers to lowercase, so check both cases
+        const totalCountHeader = response.headers['x-total-count'] || 
+                                 response.headers['X-Total-Count'] ||
+                                 (response.headers && Object.keys(response.headers).find(key => key.toLowerCase() === 'x-total-count') && response.headers[Object.keys(response.headers).find(key => key.toLowerCase() === 'x-total-count')])
         if (totalCountHeader) {
           totalCount.value = parseInt(totalCountHeader, 10)
         } else {
-          // Fallback to response data length if header not available
-          totalCount.value = response.data.length
+          // Fallback: if we got a full page, assume there are more
+          // Otherwise use response data length
+          if (response.data.length === pageSize.value) {
+            // Likely more pages exist, set a minimum total
+            totalCount.value = Math.max(pageSize.value + 1, response.data.length)
+          } else {
+            totalCount.value = response.data.length
+          }
         }
         
         if (ipAddresses.value.length === 0) {
