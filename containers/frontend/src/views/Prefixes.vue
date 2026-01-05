@@ -847,6 +847,7 @@ export default {
       suggestionTimeout: null,
       showSearchHelp: false,
       searchHelpTimeout: null,
+      isLoadingFromUrl: false, // Flag to prevent URL updates during initial load from URL
       // Subnet allocation properties
       createMode: 'manual', // 'manual' or 'allocate'
       allocating: false,
@@ -901,17 +902,49 @@ export default {
     },
     'newPrefix.cidr'() {
       this.debouncedSuggestParent()
+    },
+    // Watch for URL query parameter changes
+    '$route.query'(newQuery, oldQuery) {
+      // Only reload if query actually changed and we're not currently updating URL from filters
+      // This prevents infinite loops when updateUrl() triggers route changes
+      if (!this.isLoadingFromUrl && JSON.stringify(newQuery) !== JSON.stringify(oldQuery)) {
+        this.loadFiltersFromUrl()
+        this.loadData()
+      }
+    },
+    // Watch filter changes and update URL
+    'filters.vrfIds'() {
+      this.updateUrl()
+    },
+    'filters.source'() {
+      this.updateUrl()
+    },
+    'filters.routable'() {
+      this.updateUrl()
+    },
+    'filters.search'() {
+      // Debounce search URL updates
+      clearTimeout(this.searchTimeout)
+      this.searchTimeout = setTimeout(() => {
+        this.updateUrl()
+      }, 500)
+    },
+    'filters.includeDeleted'() {
+      this.updateUrl()
+    },
+    'viewMode'() {
+      this.updateUrl()
+    },
+    'pagination.currentPage'() {
+      this.updateUrl()
     }
   },
   async mounted() {
     await this.loadVRFs()
     await this.loadVPCs()
     
-    // Handle query parameters for VRF filtering
-    if (this.$route.query.vrf_id) {
-      // Convert single vrf_id query param to array format
-      this.filters.vrfIds = [this.$route.query.vrf_id]
-    }
+    // Handle query parameters for filtering
+    this.loadFiltersFromUrl()
     
     await this.loadData()
   },
@@ -1017,6 +1050,119 @@ export default {
       } catch (error) {
         console.error('Failed to load VPCs:', error)
       }
+    },
+    
+    // Load filters from URL query parameters
+    loadFiltersFromUrl() {
+      this.isLoadingFromUrl = true
+      const query = this.$route.query
+      
+      // Handle VRF IDs - support both vrf_id (single) and vrf_id (multiple) or vrf_ids (comma-separated)
+      if (query.vrf_id) {
+        // Handle array of vrf_id params or comma-separated string
+        if (Array.isArray(query.vrf_id)) {
+          this.filters.vrfIds = query.vrf_id
+        } else if (query.vrf_id.includes(',')) {
+          this.filters.vrfIds = query.vrf_id.split(',').filter(id => id.trim())
+        } else {
+          this.filters.vrfIds = [query.vrf_id]
+        }
+      } else if (query.vrf_ids) {
+        // Support comma-separated vrf_ids parameter
+        this.filters.vrfIds = query.vrf_ids.split(',').filter(id => id.trim())
+      }
+      
+      // Handle source filter
+      if (query.source !== undefined) {
+        this.filters.source = query.source || ''
+      }
+      
+      // Handle routable filter
+      if (query.routable !== undefined) {
+        if (query.routable === 'true' || query.routable === true) {
+          this.filters.routable = true
+        } else if (query.routable === 'false' || query.routable === false) {
+          this.filters.routable = false
+        } else {
+          this.filters.routable = ''
+        }
+      }
+      
+      // Handle search filter
+      if (query.search !== undefined) {
+        this.filters.search = query.search || ''
+      }
+      
+      // Handle includeDeleted filter
+      if (query.include_deleted !== undefined) {
+        this.filters.includeDeleted = query.include_deleted === 'true' || query.include_deleted === true
+      }
+      
+      // Handle view mode
+      if (query.view_mode !== undefined) {
+        if (query.view_mode === 'tree' || query.view_mode === 'list') {
+          this.viewMode = query.view_mode
+        }
+      }
+      
+      // Handle pagination
+      if (query.page !== undefined) {
+        const pageNum = parseInt(query.page, 10)
+        if (pageNum > 0) {
+          this.pagination.currentPage = pageNum
+        }
+      }
+      
+      this.isLoadingFromUrl = false
+    },
+    
+    // Update URL with current filter values
+    updateUrl() {
+      // Don't update URL if we're currently loading from URL (prevents infinite loops)
+      if (this.isLoadingFromUrl) {
+        return
+      }
+      
+      const query = {}
+      
+      // Add VRF IDs
+      if (this.filters.vrfIds && this.filters.vrfIds.length > 0) {
+        // Use multiple vrf_id params for better compatibility
+        query.vrf_id = this.filters.vrfIds
+      }
+      
+      // Add source filter
+      if (this.filters.source) {
+        query.source = this.filters.source
+      }
+      
+      // Add routable filter
+      if (this.filters.routable !== '') {
+        query.routable = this.filters.routable.toString()
+      }
+      
+      // Add search filter
+      if (this.filters.search) {
+        query.search = this.filters.search
+      }
+      
+      // Add includeDeleted filter
+      if (this.filters.includeDeleted) {
+        query.include_deleted = 'true'
+      }
+      
+      // Add view mode
+      if (this.viewMode !== 'list') {
+        query.view_mode = this.viewMode
+      }
+      
+      // Add pagination
+      if (this.pagination.currentPage > 1) {
+        query.page = this.pagination.currentPage.toString()
+      }
+      
+      // Update URL without triggering navigation
+      this.$router.push({ query }).catch(() => {})
     },
     
     debounceSearch() {
