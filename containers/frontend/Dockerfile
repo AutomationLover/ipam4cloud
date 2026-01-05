@@ -13,5 +13,7 @@ COPY . .
 
 EXPOSE 8080
 
-CMD ["npm", "run", "serve"]
+# Install dependencies if node_modules doesn't exist (for volume mounts)
+# Then start the development server
+CMD sh -c "if [ ! -d 'node_modules' ] || [ ! -f 'node_modules/.package-lock.json' ]; then npm install; fi && npm run serve"
 

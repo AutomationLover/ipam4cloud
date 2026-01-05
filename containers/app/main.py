@@ -11,6 +11,7 @@ import csv
 import ast
 import json
 import ipaddress
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 from sqlalchemy import text

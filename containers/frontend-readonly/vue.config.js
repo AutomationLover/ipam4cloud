@@ -7,5 +7,8 @@ module.exports = defineConfig({
     port: 8081,
     allowedHosts: 'all'
   },
-  publicPath: process.env.NODE_ENV === 'production' ? '/readonly/' : '/'
+  publicPath: process.env.NODE_ENV === 'production' ? '/readonly/' : '/',
+  // Show linting warnings in development but don't block compilation
+  // Enforce linting errors in production builds
+  lintOnSave: process.env.NODE_ENV === 'development' ? 'warning' : true
 })

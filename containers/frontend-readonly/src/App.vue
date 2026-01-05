@@ -26,13 +26,17 @@
             <el-icon><Monitor /></el-icon>
             <span>VPCs</span>
           </el-menu-item>
+          <el-menu-item index="/ip-addresses">
+            <el-icon><Search /></el-icon>
+            <span>IP Addresses</span>
+          </el-menu-item>
         </el-menu>
       </el-header>
       <el-main>
         <router-view />
       </el-main>
       <el-footer style="text-align: center; color: #909399; font-size: 12px;">
-        IPAM4Cloud - Read-Only Portal (Port 8081) | 
+        IPAM4Cloud - Read-Only Portal (Port 8081) |
         <el-icon><InfoFilled /></el-icon>
         This interface provides query-only access to network resources
       </el-footer>
@@ -41,7 +45,7 @@
 </template>
 
 <script>
-import { Grid, List, Connection, Monitor } from '@element-plus/icons-vue'
+import { Grid, List, Connection, Monitor, Search } from '@element-plus/icons-vue'
 
 export default {
   name: 'ReadOnlyApp',
@@ -49,7 +53,8 @@ export default {
     Grid,
     List,
     Connection,
-    Monitor
+    Monitor,
+    Search
   },
   methods: {
     // Reserved for future methods
@@ -73,7 +78,6 @@ export default {
 .el-menu--horizontal {
   border-bottom: none;
 }
-
 
 .el-main {
   padding: 20px;

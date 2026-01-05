@@ -482,9 +482,6 @@ class PrefixManager:
         try:
             parent_network = ipaddress.ip_network(str(parent_prefix.cidr), strict=False)
             
-            # Generate all possible subnets of the requested size
-            possible_subnets = list(parent_network.subnets(new_prefix=subnet_size))
-            
             # Get existing child prefixes
             with self.db_manager.get_session() as session:
                 children = session.query(Prefix).filter(
@@ -499,18 +496,56 @@ class PrefixManager:
                     except ValueError:
                         continue  # Skip invalid CIDRs
                 
-                # Find available subnets (no overlap with existing)
-                available_subnets = []
-                for subnet in possible_subnets:
-                    is_available = True
-                    for existing in existing_networks:
-                        if subnet.overlaps(existing):
-                            is_available = False
-                            break
-                    if is_available:
-                        available_subnets.append(str(subnet))
+                # For large address spaces (especially IPv6), iterate lazily instead of generating all subnets
+                # Calculate the number of possible subnets
+                address_bits = parent_network.max_prefixlen  # 32 for IPv4, 128 for IPv6
+                subnet_bits = subnet_size
+                parent_bits = parent_network.prefixlen
+                num_possible_subnets = 2 ** (subnet_bits - parent_bits)
                 
-                return available_subnets
+                # If there are too many possible subnets (e.g., > 100), use lazy iteration
+                # Otherwise, generate all subnets for faster checking
+                max_subnets_to_generate = 100  # 100 subnets - we don't need to allocate many at a time
+                
+                if num_possible_subnets > max_subnets_to_generate:
+                    # Use lazy iteration for large address spaces
+                    available_subnets = []
+                    subnet_generator = parent_network.subnets(new_prefix=subnet_size)
+                    
+                    # Limit to first 16 available subnets - we only need one for allocation,
+                    # but finding a few more helps with available_count calculation
+                    max_available_to_find = 16
+                    
+                    for subnet in subnet_generator:
+                        if len(available_subnets) >= max_available_to_find:
+                            break
+                            
+                        is_available = True
+                        for existing in existing_networks:
+                            if subnet.overlaps(existing):
+                                is_available = False
+                                break
+                        
+                        if is_available:
+                            available_subnets.append(str(subnet))
+                    
+                    return available_subnets
+                else:
+                    # For smaller address spaces, generate all subnets for completeness
+                    possible_subnets = list(parent_network.subnets(new_prefix=subnet_size))
+                    
+                    # Find available subnets (no overlap with existing)
+                    available_subnets = []
+                    for subnet in possible_subnets:
+                        is_available = True
+                        for existing in existing_networks:
+                            if subnet.overlaps(existing):
+                                is_available = False
+                                break
+                        if is_available:
+                            available_subnets.append(str(subnet))
+                    
+                    return available_subnets
                 
         except (ValueError, ipaddress.AddressValueError) as e:
             raise ValueError(f"Invalid parent CIDR {parent_prefix.cidr}: {e}")

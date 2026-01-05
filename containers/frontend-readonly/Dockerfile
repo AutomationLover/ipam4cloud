@@ -14,5 +14,6 @@ COPY . .
 # Expose port 8081
 EXPOSE 8081
 
-# Start development server
-CMD ["npm", "run", "serve"]
+# Install dependencies if node_modules doesn't exist or is incomplete (for volume mounts)
+# Then start the development server
+CMD sh -c "if [ ! -d 'node_modules' ] || [ ! -f 'node_modules/@vue/cli-plugin-babel/package.json' ]; then echo 'Installing dependencies...' && npm install; fi && npm run serve"
