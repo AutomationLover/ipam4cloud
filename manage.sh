@@ -256,6 +256,8 @@ case $COMMAND in
         ;;
     restart)
         stop_containers
+        print_status "Building containers to ensure latest changes are included..."
+        $DOCKER_COMPOSE build
         start_containers $CLEAN_DB
         ;;
     clean)
