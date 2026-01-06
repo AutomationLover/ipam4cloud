@@ -1,6 +1,21 @@
 import axios from 'axios'
 
-const API_BASE_URL = process.env.VUE_APP_API_URL || 'http://localhost:8000'
+// Dynamically determine API URL based on current host
+// If VUE_APP_API_URL is set and not empty, use it; otherwise use same host with port 8000
+function getApiBaseUrl() {
+  const envUrl = process.env.VUE_APP_API_URL
+  if (envUrl && envUrl.trim() !== '') {
+    return envUrl
+  }
+  
+  // Use current hostname and port 8000 (backend port)
+  // This works whether accessing via localhost, IP address, or hostname
+  const protocol = window.location.protocol
+  const hostname = window.location.hostname
+  return `${protocol}//${hostname}:8000`
+}
+
+const API_BASE_URL = getApiBaseUrl()
 
 const api = axios.create({
   baseURL: API_BASE_URL,
