@@ -43,6 +43,10 @@
               <el-icon><FolderOpened /></el-icon>
               <span>PC Export & Import</span>
             </el-menu-item>
+            <el-menu-item index="/device42-upload">
+              <el-icon><Upload /></el-icon>
+              <span>Device42 CSV Upload</span>
+            </el-menu-item>
           </el-sub-menu>
         </el-menu>
       </el-header>
@@ -54,7 +58,7 @@
 </template>
 
 <script>
-import { Grid, List, Connection, Monitor, Download, Clock, FolderOpened, Search } from '@element-plus/icons-vue'
+import { Grid, List, Connection, Monitor, Download, Clock, FolderOpened, Search, Upload } from '@element-plus/icons-vue'
 
 export default {
   name: 'App',
@@ -66,7 +70,8 @@ export default {
     Download,
     Clock,
     FolderOpened,
-    Search
+    Search,
+    Upload
   },
   methods: {
     // Reserved for future methods

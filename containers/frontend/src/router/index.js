@@ -8,6 +8,7 @@ import VPCs from '../views/VPCs.vue'
 import VPCDetail from '../views/VPCDetail.vue'
 import BackupRestore from '../views/BackupRestore.vue'
 import PCExportImport from '../views/PCExportImport.vue'
+import Device42Upload from '../views/Device42Upload.vue'
 import IPAddresses from '../views/IPAddresses.vue'
 
 const routes = [
@@ -56,6 +57,11 @@ const routes = [
     path: '/pc-export-import',
     name: 'PCExportImport',
     component: PCExportImport
+  },
+  {
+    path: '/device42-upload',
+    name: 'Device42Upload',
+    component: Device42Upload
   },
   {
     path: '/ip-addresses',

@@ -19,7 +19,7 @@ const API_BASE_URL = getApiBaseUrl()
 
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 10000,
+  timeout: 300000, // 5 minutes timeout for large file uploads (8MB+ CSV processing can take time)
   headers: {
     'Content-Type': 'application/json'
   }
@@ -177,6 +177,33 @@ export const pcExportImportAPI = {
   validatePCFolder: (pcFolder) => api.get('/api/pc-validate', { 
     params: { pc_folder: pcFolder } 
   })
+}
+
+// Device42 CSV Upload API
+export const device42API = {
+  // Upload Device42 subnets CSV
+  uploadSubnets: (formData, onUploadProgress) => {
+    const config = {
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      },
+      timeout: 600000, // 10 minutes for large file uploads and processing
+      onUploadProgress: onUploadProgress || (() => {})
+    }
+    return api.post('/api/device42/upload-subnets', formData, config)
+  },
+  
+  // Upload Device42 IP addresses CSV
+  uploadIPAddresses: (formData, onUploadProgress) => {
+    const config = {
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      },
+      timeout: 600000, // 10 minutes for large file uploads and processing
+      onUploadProgress: onUploadProgress || (() => {})
+    }
+    return api.post('/api/device42/upload-ipaddresses', formData, config)
+  }
 }
 
 // Device42 IP Address API

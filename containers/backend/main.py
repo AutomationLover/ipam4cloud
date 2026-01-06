@@ -4,7 +4,7 @@ FastAPI Backend for Prefix Management System
 Provides REST API endpoints for the Vue.js frontend
 """
 
-from fastapi import FastAPI, HTTPException, Depends, Query, Request, Response
+from fastapi import FastAPI, HTTPException, Depends, Query, Request, Response, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
@@ -14,6 +14,7 @@ from sqlalchemy.exc import SQLAlchemyError, OperationalError, IntegrityError
 import os
 import sys
 import uuid
+import tempfile
 from datetime import datetime
 
 # Add the app directory to Python path to import models
@@ -24,6 +25,24 @@ from backup_restore import BackupManager
 from pc_export_import import PCExportImportManager
 from idempotency_service import IdempotencyService, IdempotencyManager
 from middleware import setup_middleware
+
+# Import Device42 loading functions from app/main.py (not backend/main.py)
+# We need to import the module explicitly to avoid circular import with backend/main.py
+import importlib.util
+import sys
+
+# Load app/main.py as a separate module to avoid circular import
+app_main_path = '/app/main.py'
+if app_main_path not in sys.modules:
+    spec = importlib.util.spec_from_file_location("app_main_module", app_main_path)
+    app_main_module = importlib.util.module_from_spec(spec)
+    sys.modules['app_main_module'] = app_main_module
+    spec.loader.exec_module(app_main_module)
+else:
+    app_main_module = sys.modules[app_main_path]
+
+load_device42_subnets_from_csv = app_main_module.load_device42_subnets_from_csv
+load_device42_ipaddresses_from_csv = app_main_module.load_device42_ipaddresses_from_csv
 
 # Pydantic models for API
 class PrefixResponse(BaseModel):
@@ -165,6 +184,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Total-Count"],  # Expose custom header to frontend
 )
 
 # Database connection
@@ -1419,6 +1439,79 @@ async def validate_pc_folder(pc_folder: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"PC validation failed: {str(e)}")
 
+# Device42 CSV Upload endpoints
+@app.post("/api/device42/upload-subnets")
+async def upload_device42_subnets(
+    file: UploadFile = File(...),
+    pm: PrefixManager = Depends(get_prefix_manager)
+):
+    """Upload and process Device42 subnet CSV file"""
+    try:
+        # Validate file type
+        if not file.filename.endswith('.csv'):
+            raise HTTPException(status_code=400, detail="File must be a CSV file")
+        
+        # Save uploaded file to temporary location
+        with tempfile.NamedTemporaryFile(mode='wb', delete=False, suffix='.csv') as tmp_file:
+            content = await file.read()
+            tmp_file.write(content)
+            tmp_file_path = tmp_file.name
+        
+        try:
+            # Load Device42 subnets from the uploaded file
+            load_device42_subnets_from_csv(pm, csv_file=tmp_file_path, limit=None)
+            
+            return {
+                "status": "success",
+                "message": "Device42 subnet CSV uploaded and processed successfully",
+                "filename": file.filename,
+                "timestamp": datetime.now().isoformat()
+            }
+        finally:
+            # Clean up temporary file
+            if os.path.exists(tmp_file_path):
+                os.unlink(tmp_file_path)
+                
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to process Device42 subnet CSV: {str(e)}")
+
+@app.post("/api/device42/upload-ipaddresses")
+async def upload_device42_ipaddresses(
+    file: UploadFile = File(...)
+):
+    """Upload and process Device42 IP address CSV file"""
+    try:
+        # Validate file type
+        if not file.filename.endswith('.csv'):
+            raise HTTPException(status_code=400, detail="File must be a CSV file")
+        
+        # Save uploaded file to temporary location
+        with tempfile.NamedTemporaryFile(mode='wb', delete=False, suffix='.csv') as tmp_file:
+            content = await file.read()
+            tmp_file.write(content)
+            tmp_file_path = tmp_file.name
+        
+        try:
+            # Load Device42 IP addresses from the uploaded file
+            load_device42_ipaddresses_from_csv(db_manager, csv_file=tmp_file_path, limit=None)
+            
+            return {
+                "status": "success",
+                "message": "Device42 IP address CSV uploaded and processed successfully",
+                "filename": file.filename,
+                "timestamp": datetime.now().isoformat()
+            }
+        finally:
+            # Clean up temporary file
+            if os.path.exists(tmp_file_path):
+                os.unlink(tmp_file_path)
+                
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to process Device42 IP address CSV: {str(e)}")
 
 # Device42 IP Address endpoints
 class IPAddressResponse(BaseModel):
@@ -1599,4 +1692,13 @@ async def health_check():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # Increased timeout for large file uploads (8MB+ CSV files)
+    # timeout_keep_alive: keep connections alive for 5 minutes
+    # timeout_graceful_shutdown: allow 30 seconds for graceful shutdown
+    uvicorn.run(
+        app, 
+        host="0.0.0.0", 
+        port=8000,
+        timeout_keep_alive=300,  # 5 minutes
+        timeout_graceful_shutdown=30
+    )

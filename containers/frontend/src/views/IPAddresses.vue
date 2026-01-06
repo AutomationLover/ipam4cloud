@@ -342,14 +342,14 @@ export default {
         const response = await ipAddressAPI.getIPAddresses(null, null, pageSize.value, false, offset)
         ipAddresses.value = response.data
         
-        // Get total count from response header (case-insensitive)
-        // Axios normalizes headers to lowercase, so check both cases
-        const totalCountHeader = response.headers['x-total-count'] || 
-                                 response.headers['X-Total-Count'] ||
-                                 (response.headers && Object.keys(response.headers).find(key => key.toLowerCase() === 'x-total-count') && response.headers[Object.keys(response.headers).find(key => key.toLowerCase() === 'x-total-count')])
+        // Get total count from response header
+        // Axios normalizes headers to lowercase
+        const totalCountHeader = response.headers['x-total-count']
         if (totalCountHeader) {
           totalCount.value = parseInt(totalCountHeader, 10)
+          console.log('Total count from header:', totalCount.value, 'for page', currentPage.value)
         } else {
+          console.warn('X-Total-Count header not found. Available headers:', Object.keys(response.headers || {}))
           // Fallback: if we got a full page, assume there are more
           // Otherwise use response data length
           if (response.data.length === pageSize.value) {
@@ -390,14 +390,14 @@ export default {
         const response = await ipAddressAPI.getIPAddresses(currentLabel.value, null, pageSize.value, matchMode.value, offset)
         ipAddresses.value = response.data
         
-        // Get total count from response header (case-insensitive)
-        // Axios normalizes headers to lowercase, so check both cases
-        const totalCountHeader = response.headers['x-total-count'] || 
-                                 response.headers['X-Total-Count'] ||
-                                 (response.headers && Object.keys(response.headers).find(key => key.toLowerCase() === 'x-total-count') && response.headers[Object.keys(response.headers).find(key => key.toLowerCase() === 'x-total-count')])
+        // Get total count from response header
+        // Axios normalizes headers to lowercase
+        const totalCountHeader = response.headers['x-total-count']
         if (totalCountHeader) {
           totalCount.value = parseInt(totalCountHeader, 10)
+          console.log('Total count from header:', totalCount.value, 'for label:', currentLabel.value)
         } else {
+          console.warn('X-Total-Count header not found. Available headers:', Object.keys(response.headers || {}))
           // Fallback: if we got a full page, assume there are more
           // Otherwise use response data length
           if (response.data.length === pageSize.value) {

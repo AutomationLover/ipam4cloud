@@ -1119,11 +1119,8 @@ def main():
         # Step 4: Load public IP addresses
         load_public_ips_from_json(prefix_manager, data_loader, created_vpcs)
         
-        # Step 5: Load Device42 subnets (all records)
-        load_device42_subnets_from_csv(prefix_manager, csv_file="data/device42_subnet.csv", limit=None)
-        
-        # Step 5.5: Load Device42 IP addresses (only items with Label)
-        load_device42_ipaddresses_from_csv(db_manager, csv_file="data/device42_ipaddress.csv", limit=None)
+        # Note: Device42 CSV files are now uploaded via the admin GUI instead of being loaded automatically
+        # Use the /api/device42/upload-subnets and /api/device42/upload-ipaddresses endpoints
         
         # Step 6: Run demonstration queries (using VPCs by provider ID for compatibility)
         vpc1 = created_vpcs.get('vpc-0abc1234')
