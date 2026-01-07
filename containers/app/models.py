@@ -481,32 +481,35 @@ class PrefixManager:
         """Calculate all possible subnets of given size within parent prefix"""
         try:
             parent_network = ipaddress.ip_network(str(parent_prefix.cidr), strict=False)
+        except (ValueError, ipaddress.AddressValueError) as e:
+            raise ValueError(f"Invalid parent CIDR {parent_prefix.cidr}: {e}")
+        
+        # Get existing child prefixes
+        with self.db_manager.get_session() as session:
+            children = session.query(Prefix).filter(
+                Prefix.parent_prefix_id == parent_prefix.prefix_id
+            ).all()
             
-            # Get existing child prefixes
-            with self.db_manager.get_session() as session:
-                children = session.query(Prefix).filter(
-                    Prefix.parent_prefix_id == parent_prefix.prefix_id
-                ).all()
-                
-                # Convert existing children to networks for overlap checking
-                existing_networks = []
-                for child in children:
-                    try:
-                        existing_networks.append(ipaddress.ip_network(str(child.cidr), strict=False))
-                    except ValueError:
-                        continue  # Skip invalid CIDRs
-                
-                # For large address spaces (especially IPv6), iterate lazily instead of generating all subnets
-                # Calculate the number of possible subnets
-                address_bits = parent_network.max_prefixlen  # 32 for IPv4, 128 for IPv6
-                subnet_bits = subnet_size
-                parent_bits = parent_network.prefixlen
-                num_possible_subnets = 2 ** (subnet_bits - parent_bits)
-                
-                # If there are too many possible subnets (e.g., > 100), use lazy iteration
-                # Otherwise, generate all subnets for faster checking
-                max_subnets_to_generate = 100  # 100 subnets - we don't need to allocate many at a time
-                
+            # Convert existing children to networks for overlap checking
+            existing_networks = []
+            for child in children:
+                try:
+                    existing_networks.append(ipaddress.ip_network(str(child.cidr), strict=False))
+                except ValueError:
+                    continue  # Skip invalid CIDRs
+            
+            # For large address spaces (especially IPv6), iterate lazily instead of generating all subnets
+            # Calculate the number of possible subnets
+            address_bits = parent_network.max_prefixlen  # 32 for IPv4, 128 for IPv6
+            subnet_bits = subnet_size
+            parent_bits = parent_network.prefixlen
+            num_possible_subnets = 2 ** (subnet_bits - parent_bits)
+            
+            # If there are too many possible subnets (e.g., > 100), use lazy iteration
+            # Otherwise, generate all subnets for faster checking
+            max_subnets_to_generate = 100  # 100 subnets - we don't need to allocate many at a time
+            
+            try:
                 if num_possible_subnets > max_subnets_to_generate:
                     # Use lazy iteration for large address spaces
                     available_subnets = []
@@ -546,9 +549,8 @@ class PrefixManager:
                             available_subnets.append(str(subnet))
                     
                     return available_subnets
-                
-        except (ValueError, ipaddress.AddressValueError) as e:
-            raise ValueError(f"Invalid parent CIDR {parent_prefix.cidr}: {e}")
+            except (ValueError, ipaddress.AddressValueError) as e:
+                raise ValueError(f"Invalid subnet size {subnet_size} for parent CIDR {parent_prefix.cidr} (parent prefix length: {parent_network.prefixlen}): {e}")
     
     def validate_prefix_conflicts(self, vrf_id: str, cidr: str, parent_prefix_id: Optional[str] = None) -> None:
         """
