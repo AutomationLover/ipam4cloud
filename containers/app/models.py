@@ -509,48 +509,51 @@ class PrefixManager:
             # Otherwise, generate all subnets for faster checking
             max_subnets_to_generate = 100  # 100 subnets - we don't need to allocate many at a time
             
-            try:
-                if num_possible_subnets > max_subnets_to_generate:
-                    # Use lazy iteration for large address spaces
-                    available_subnets = []
+            if num_possible_subnets > max_subnets_to_generate:
+                # Use lazy iteration for large address spaces
+                available_subnets = []
+                try:
                     subnet_generator = parent_network.subnets(new_prefix=subnet_size)
-                    
-                    # Limit to first 16 available subnets - we only need one for allocation,
-                    # but finding a few more helps with available_count calculation
-                    max_available_to_find = 16
-                    
-                    for subnet in subnet_generator:
-                        if len(available_subnets) >= max_available_to_find:
-                            break
-                            
-                        is_available = True
-                        for existing in existing_networks:
-                            if subnet.overlaps(existing):
-                                is_available = False
-                                break
+                except (ValueError, ipaddress.AddressValueError) as e:
+                    raise ValueError(f"Invalid subnet size {subnet_size} for parent CIDR {parent_prefix.cidr} (parent prefix length: {parent_network.prefixlen}): {e}")
+                
+                # Limit to first 16 available subnets - we only need one for allocation,
+                # but finding a few more helps with available_count calculation
+                max_available_to_find = 16
+                
+                for subnet in subnet_generator:
+                    if len(available_subnets) >= max_available_to_find:
+                        break
                         
-                        if is_available:
-                            available_subnets.append(str(subnet))
+                    is_available = True
+                    for existing in existing_networks:
+                        if subnet.overlaps(existing):
+                            is_available = False
+                            break
                     
-                    return available_subnets
-                else:
-                    # For smaller address spaces, generate all subnets for completeness
+                    if is_available:
+                        available_subnets.append(str(subnet))
+                
+                return available_subnets
+            else:
+                # For smaller address spaces, generate all subnets for completeness
+                try:
                     possible_subnets = list(parent_network.subnets(new_prefix=subnet_size))
-                    
-                    # Find available subnets (no overlap with existing)
-                    available_subnets = []
-                    for subnet in possible_subnets:
-                        is_available = True
-                        for existing in existing_networks:
-                            if subnet.overlaps(existing):
-                                is_available = False
-                                break
-                        if is_available:
-                            available_subnets.append(str(subnet))
-                    
-                    return available_subnets
-            except (ValueError, ipaddress.AddressValueError) as e:
-                raise ValueError(f"Invalid subnet size {subnet_size} for parent CIDR {parent_prefix.cidr} (parent prefix length: {parent_network.prefixlen}): {e}")
+                except (ValueError, ipaddress.AddressValueError) as e:
+                    raise ValueError(f"Invalid subnet size {subnet_size} for parent CIDR {parent_prefix.cidr} (parent prefix length: {parent_network.prefixlen}): {e}")
+                
+                # Find available subnets (no overlap with existing)
+                available_subnets = []
+                for subnet in possible_subnets:
+                    is_available = True
+                    for existing in existing_networks:
+                        if subnet.overlaps(existing):
+                            is_available = False
+                            break
+                    if is_available:
+                        available_subnets.append(str(subnet))
+                
+                return available_subnets
     
     def validate_prefix_conflicts(self, vrf_id: str, cidr: str, parent_prefix_id: Optional[str] = None) -> None:
         """
