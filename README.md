@@ -95,7 +95,6 @@ aws ec2 create-vpc --cidr-block 10.102.0.0/16 --tag-specifications 'ResourceType
 # Update your .env file with the returned VPC IDs
 ```
 
-**Reference**: See `scripts/aws/commands.template.sh` for more AWS CLI examples.
 
 ## 🏗️ Architecture
 
@@ -197,9 +196,6 @@ The AWS sync service automatically discovers and synchronizes VPC subnets:
 ```bash
 # Monitor sync logs
 docker compose -f containers/docker-compose.yml logs -f aws-sync
-
-# Manual sync test
-./scripts/utils/test_aws_sync.sh
 ```
 
 ### Sync Configuration
@@ -264,18 +260,6 @@ docker compose -f containers/docker-compose.yml down -v
 docker compose -f containers/docker-compose.yml up --build
 ```
 
-## 🔧 Utility Scripts
-
-Additional utility scripts are available in the `scripts/utils/` directory:
-
-```bash
-# Test AWS sync functionality
-./scripts/utils/test_aws_sync.sh
-
-# Monitor sync service with dashboard
-./scripts/utils/monitor_sync.sh
-```
-
 ## 📊 Demo Scenarios
 
 The system includes comprehensive demo scenarios:
@@ -320,9 +304,6 @@ aws sts get-caller-identity
 
 # View sync logs
 docker compose -f containers/docker-compose.yml logs aws-sync
-
-# Test sync manually
-./scripts/utils/test_aws_sync.sh
 ```
 
 **Configuration Issues**
@@ -430,13 +411,6 @@ ipam4cloud/
 ├── requirements.txt             # Python dependencies
 ├── .env                         # Your environment configuration (git-ignored)
 ├── env.example                  # Environment template
-├── scripts/                     # Utility and reference scripts
-│   ├── utils/                   # Testing and monitoring utilities
-│   │   ├── test_aws_sync.sh     # AWS sync testing
-│   │   └── monitor_sync.sh      # Sync monitoring dashboard
-│   └── aws/                     # AWS reference templates
-│       ├── commands.template.sh # AWS CLI command examples
-│       └── vpc_details.template.json # VPC details template
 ├── docs/                        # Documentation
 │   ├── ENV_SETUP.md             # Detailed environment setup
 │   ├── WEB_APP_README.md        # Web interface guide

@@ -93,8 +93,6 @@ show_env_status
 templates=(
     "containers/app/data/vpc_data.template.json:containers/app/data/vpc_data.gen.json"
     "containers/app/data/manual_prefixes.template.json:containers/app/data/manual_prefixes.gen.json"
-    "scripts/aws/vpc_details.template.json:.aws-local/vpc_details.json"
-    "scripts/aws/commands.template.sh:.aws-local/commands.sh"
 )
 
 # Process each template
