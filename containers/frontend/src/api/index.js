@@ -19,7 +19,7 @@ const API_BASE_URL = getApiBaseUrl()
 
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 300000, // 5 minutes timeout for large file uploads (8MB+ CSV processing can take time)
+  timeout: 30000, // 30 seconds default timeout for most API calls (can be overridden per-request)
   headers: {
     'Content-Type': 'application/json'
   }
@@ -49,11 +49,17 @@ api.interceptors.response.use(
 
 export const prefixAPI = {
   // Get all prefixes with optional filters
-  getPrefixes: (params = {}) => api.get('/api/prefixes', { params }),
+  getPrefixes: (params = {}) => api.get('/api/prefixes', { 
+    params,
+    timeout: 120000 // 2 minutes for large prefix queries with complex filters
+  }),
   
   // Get prefixes in tree structure
   getPrefixesTree: (params = {}) => {
-    return api.get('/api/prefixes/tree', { params })
+    return api.get('/api/prefixes/tree', { 
+      params,
+      timeout: 120000 // 2 minutes for building large tree structures
+    })
   },
   
   // Get specific prefix by ID
@@ -81,11 +87,14 @@ export const prefixAPI = {
   getPrefixVPCAssociations: (prefixId) => api.get(`/api/prefixes/${prefixId}/vpc-associations`),
   
   // Subnet allocation (AWS IPAM-style)
-  allocateSubnet: (data) => api.post('/api/prefixes/allocate-subnet', data),
+  allocateSubnet: (data) => api.post('/api/prefixes/allocate-subnet', data, {
+    timeout: 120000 // 2 minutes for searching through many prefixes
+  }),
   
   // Get available subnets in a parent prefix
   getAvailableSubnets: (prefixId, subnetSize) => api.get(`/api/prefixes/${prefixId}/available-subnets`, {
-    params: { subnet_size: subnetSize }
+    params: { subnet_size: subnetSize },
+    timeout: 120000 // 2 minutes for calculating available subnets (IPv6 can have millions)
   })
 }
 
@@ -140,13 +149,18 @@ export const healthAPI = {
 // Backup/Restore API (Internal Docker storage)
 export const backupAPI = {
   // Create a new backup
-  createBackup: (description) => api.post('/api/backup', null, { params: { description } }),
+  createBackup: (description) => api.post('/api/backup', null, { 
+    params: { description },
+    timeout: 300000 // 5 minutes for exporting entire database
+  }),
   
   // List all backups
   listBackups: () => api.get('/api/backups'),
   
   // Restore from backup
-  restoreBackup: (backupId) => api.post(`/api/restore/${backupId}`),
+  restoreBackup: (backupId) => api.post(`/api/restore/${backupId}`, null, {
+    timeout: 300000 // 5 minutes for importing entire database
+  }),
   
   // Delete backup
   deleteBackup: (backupId) => api.delete(`/api/backup/${backupId}`),
@@ -159,17 +173,20 @@ export const backupAPI = {
 export const pcExportImportAPI = {
   // Export to PC folder
   exportToPC: (pcFolder, exportName) => api.post('/api/pc-export', null, { 
-    params: { pc_folder: pcFolder, export_name: exportName } 
+    params: { pc_folder: pcFolder, export_name: exportName },
+    timeout: 300000 // 5 minutes for file I/O operations
   }),
   
   // Import from PC folder
   importFromPC: (pcFolder) => api.post('/api/pc-import', null, { 
-    params: { pc_folder: pcFolder } 
+    params: { pc_folder: pcFolder },
+    timeout: 300000 // 5 minutes for file I/O + database import
   }),
   
   // Scan PC folder for exports
   scanPCFolder: (pcFolder) => api.get('/api/pc-scan', { 
-    params: { pc_folder: pcFolder } 
+    params: { pc_folder: pcFolder },
+    timeout: 120000 // 2 minutes for scanning folders with many files
   }),
   
   // Validate PC folder export
