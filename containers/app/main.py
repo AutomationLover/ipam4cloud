@@ -11,11 +11,12 @@ import csv
 import ast
 import json
 import ipaddress
+import traceback
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 from sqlalchemy import text
-from models import DatabaseManager, PrefixManager, VRF, VPC, Prefix, Device42IPAddress
+from models import DatabaseManager, PrefixManager, VRF, VPC, Prefix, Device42IPAddress, VPCPrefixAssociation
 from json_loader import JSONDataLoader
 
 def wait_for_db(db_manager: DatabaseManager, max_retries: int = 30):
@@ -44,8 +45,6 @@ def find_parent_prefix(prefix_manager: PrefixManager, vrf_id: str, cidr: str) ->
         return None
     
     with prefix_manager.db_manager.get_session() as session:
-        from models import Prefix
-        
         # Find all prefixes in the same VRF that could be parents
         potential_parents = session.query(Prefix).filter(
             Prefix.vrf_id == vrf_id,
@@ -107,7 +106,6 @@ def safe_create_vpc(prefix_manager: PrefixManager, **kwargs):
             # Find existing VPC by provider details
             session = prefix_manager.db_manager.get_session()
             try:
-                from models import VPC
                 vpc = session.query(VPC).filter(
                     VPC.provider == kwargs['provider'],
                     VPC.provider_account_id == kwargs['provider_account_id'],
@@ -128,7 +126,6 @@ def safe_associate_vpc(prefix_manager: PrefixManager, **kwargs):
             # Find existing association
             session = prefix_manager.db_manager.get_session()
             try:
-                from models import VPCPrefixAssociation
                 association = session.query(VPCPrefixAssociation).filter(
                     VPCPrefixAssociation.vpc_id == kwargs['vpc_id'],
                     VPCPrefixAssociation.vpc_prefix_cidr == kwargs['vpc_prefix_cidr']
@@ -208,7 +205,6 @@ def load_manual_prefixes_from_json(prefix_manager: PrefixManager, data_loader: J
                 if parent_prefix:
                     # Validate parent-child relationship
                     try:
-                        import ipaddress
                         child_network = ipaddress.ip_network(prefix_data['cidr'], strict=False)
                         parent_network = ipaddress.ip_network(str(parent_prefix.cidr), strict=False)
                         
@@ -859,7 +855,6 @@ def load_device42_subnets_from_csv(prefix_manager: PrefixManager, csv_file: str 
         
     except Exception as e:
         print(f"❌ Error loading Device42 subnets: {e}")
-        import traceback
         traceback.print_exc()
         raise
 
@@ -1031,7 +1026,6 @@ def load_device42_ipaddresses_from_csv(db_manager: DatabaseManager, csv_file: st
         
     except Exception as e:
         print(f"❌ Error loading Device42 IP addresses: {e}")
-        import traceback
         traceback.print_exc()
         raise
 
@@ -1148,7 +1142,6 @@ def main():
         
     except Exception as e:
         print(f"\n❌ Configuration loading failed with error: {e}")
-        import traceback
         traceback.print_exc()
         return 1
     
