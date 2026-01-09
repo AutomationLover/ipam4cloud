@@ -21,7 +21,7 @@
             collapse-tags
             collapse-tags-tooltip
             clearable 
-            @change="loadPrefixes"
+            @change="loadData"
             style="width: 100%"
             :max-collapse-tags="2"
           >
@@ -41,18 +41,32 @@
           </el-select>
         </el-col>
         <el-col :span="6">
-          <el-select v-model="filters.source" placeholder="Source" clearable @change="loadPrefixes">
+          <el-select 
+            v-model="filters.source" 
+            placeholder="Source" 
+            clearable 
+            :disabled="viewMode === 'tree'"
+            @change="loadPrefixes"
+          >
             <el-option label="All Sources" value="" />
             <el-option label="Manual" value="manual" />
             <el-option label="VPC" value="vpc" />
           </el-select>
+          <div v-if="viewMode === 'tree'" class="filter-hint">List view only</div>
         </el-col>
         <el-col :span="6">
-          <el-select v-model="filters.routable" placeholder="Routable" clearable @change="loadPrefixes">
+          <el-select 
+            v-model="filters.routable" 
+            placeholder="Routable" 
+            clearable 
+            :disabled="viewMode === 'tree'"
+            @change="loadPrefixes"
+          >
             <el-option label="All" value="" />
             <el-option label="Routable" :value="true" />
             <el-option label="Non-routable" :value="false" />
           </el-select>
+          <div v-if="viewMode === 'tree'" class="filter-hint">List view only</div>
         </el-col>
       </el-row>
       
@@ -70,7 +84,8 @@
           <div class="search-container">
           <el-input
             v-model="filters.search"
-            placeholder="Search prefixes, tags..."
+            :placeholder="viewMode === 'tree' ? 'Search available in list view only' : 'Search prefixes, tags...'"
+            :disabled="viewMode === 'tree'"
             @input="debounceSearch"
               @focus="showSearchHelp = true"
               @blur="hideSearchHelp"
@@ -1025,8 +1040,8 @@ export default {
           }
           this.treeData = allTreeData
         } else {
-          // No VRF filter - load tree for all VRFs (pass null/empty)
-          const params = { vrf_id: '' }
+          // No VRF filter - load tree for all VRFs (don't pass vrf_id parameter)
+          const params = {}
           if (this.filters.includeDeleted) params.include_deleted = this.filters.includeDeleted
           const response = await prefixAPI.getPrefixesTree(params)
           this.treeData = response.data
@@ -1226,7 +1241,11 @@ export default {
     debounceSearch() {
       clearTimeout(this.searchTimeout)
       this.searchTimeout = setTimeout(() => {
-        this.loadData()
+        // Search filter only applies to list view, not tree view
+        if (this.viewMode === 'list') {
+          this.loadPrefixes()
+        }
+        // In tree view, search is ignored to preserve parent-child relationships
       }, 500)
     },
     
@@ -1996,6 +2015,13 @@ export default {
 
 .filters {
   margin-bottom: 20px;
+}
+
+.filter-hint {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 4px;
+  font-style: italic;
 }
 
 .search-container {
