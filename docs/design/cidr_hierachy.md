@@ -155,8 +155,9 @@ isSubnet(childCidr, parentCidr) {
     const childMaskNum = parseInt(childMask)
     const parentMaskNum = parseInt(parentMask)
     
-    // Child must have longer or equal mask
-    if (childMaskNum < parentMaskNum) {
+    // Child must have longer mask (strictly greater)
+    // Equal masks mean same network size, so cannot be parent-child
+    if (childMaskNum <= parentMaskNum) {
       return false
     }
     

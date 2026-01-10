@@ -1688,8 +1688,9 @@ export default {
         const childMaskNum = parseInt(childMask)
         const parentMaskNum = parseInt(parentMask)
         
-        // Child must have longer or equal mask
-        if (childMaskNum < parentMaskNum) {
+        // Child must have longer mask (strictly greater)
+        // Equal masks mean same network size, so cannot be parent-child
+        if (childMaskNum <= parentMaskNum) {
           return false
         }
         
@@ -1704,8 +1705,8 @@ export default {
         
         if (isIPv6Child) {
           // IPv6 containment check - rely on backend validation for accuracy
-          // Frontend just checks mask length relationship
-          return childMaskNum >= parentMaskNum
+          // Frontend just checks mask length relationship (already verified childMaskNum > parentMaskNum above)
+          return true
         } else {
           // IPv4 containment check
           const childIp = this.ipToNumber(childNetwork)
