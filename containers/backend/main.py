@@ -503,7 +503,10 @@ async def get_prefix(
     try:
         prefix = pm.get_prefix_by_id(prefix_id)
         if not prefix:
-            raise HTTPException(status_code=404, detail="Prefix not found")
+            raise HTTPException(
+                status_code=404, 
+                detail=f"Prefix with ID '{prefix_id}' not found"
+            )
         
         return PrefixResponse(
             prefix_id=prefix.prefix_id,
@@ -519,8 +522,14 @@ async def get_prefix(
             created_at=prefix.created_at,
             updated_at=prefix.updated_at
         )
+    except HTTPException:
+        # Re-raise HTTPExceptions (like 404) without modification
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Internal server error while retrieving prefix '{prefix_id}': {str(e)}"
+        )
 
 @app.put("/api/prefixes/{prefix_id}", response_model=PrefixResponse)
 async def update_prefix(
@@ -666,7 +675,10 @@ async def get_available_subnets(
         import ipaddress
         prefix = pm.get_prefix_by_id(prefix_id)
         if not prefix:
-            raise HTTPException(status_code=404, detail="Prefix not found")
+            raise HTTPException(
+                status_code=404, 
+                detail=f"Prefix with ID '{prefix_id}' not found"
+            )
         
         if prefix.source != 'manual':
             raise HTTPException(status_code=400, detail="Can only allocate subnets from manual prefixes")
@@ -688,10 +700,16 @@ async def get_available_subnets(
             "total_possible": total_possible,
             "ip_version": parent_network.version  # 4 or 6
         }
+    except HTTPException:
+        # Re-raise HTTPExceptions (like 404, 400) without modification
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Internal server error while retrieving available subnets for prefix '{prefix_id}': {str(e)}"
+        )
 
 @app.get("/api/prefixes/{prefix_id}/children", response_model=List[PrefixResponse])
 async def get_prefix_children(
@@ -736,7 +754,10 @@ async def can_create_child_prefix(
     try:
         prefix = pm.get_prefix_by_id(prefix_id)
         if not prefix:
-            raise HTTPException(status_code=404, detail="Prefix not found")
+            raise HTTPException(
+                status_code=404, 
+                detail=f"Prefix with ID '{prefix_id}' not found"
+            )
         
         # Rule 1: VPC-sourced prefixes cannot have child prefixes
         if prefix.source == 'vpc':
@@ -757,8 +778,14 @@ async def can_create_child_prefix(
             "reason": "Manual prefix with vpc_children_type_flag=False can have child prefixes (allows subdivision)"
         }
         
+    except HTTPException:
+        # Re-raise HTTPExceptions (like 404) without modification
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Internal server error while checking if prefix '{prefix_id}' can create child: {str(e)}"
+        )
 
 # VRF endpoints
 @app.get("/api/vrfs", response_model=List[VRFResponse])
@@ -1068,7 +1095,10 @@ async def can_associate_vpc(
     try:
         prefix = pm.get_prefix_by_id(prefix_id)
         if not prefix:
-            raise HTTPException(status_code=404, detail="Prefix not found")
+            raise HTTPException(
+                status_code=404, 
+                detail=f"Prefix with ID '{prefix_id}' not found"
+            )
         
         # Rule 1: Prefixes whose source is cloud VPC cannot associate to VPC
         if prefix.source == 'vpc':
@@ -1097,8 +1127,14 @@ async def can_associate_vpc(
             "reason": "Non-routable prefixes can associate to multiple VPC IDs" if not prefix.routable else "Routable prefix not yet associated"
         }
         
+    except HTTPException:
+        # Re-raise HTTPExceptions (like 404) without modification
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Internal server error while checking if prefix '{prefix_id}' can associate with VPC: {str(e)}"
+        )
 
 @app.get("/api/prefixes/{prefix_id}/vpc-associations")
 async def get_prefix_vpc_associations(
