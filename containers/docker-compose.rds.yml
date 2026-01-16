@@ -1,0 +1,33 @@
+# Docker Compose override for AWS RDS deployment
+# This file removes the postgres service and updates dependencies
+# Usage: docker compose -f docker-compose.yml -f docker-compose.rds.yml up -d
+
+services:
+  # Disable postgres service - using AWS RDS instead
+  # Using deploy.replicas: 0 to prevent it from starting
+  postgres:
+    deploy:
+      replicas: 0
+    profiles:
+      - never
+
+  # Update app service to remove postgres dependency
+  app:
+    depends_on: []  # Remove postgres dependency
+    environment:
+      # DATABASE_URL should be set via environment variable or .env file
+      DATABASE_URL: ${DATABASE_URL}
+
+  # Update backend service to remove postgres dependency
+  backend:
+    depends_on: []  # Remove postgres dependency
+    environment:
+      # DATABASE_URL should be set via environment variable or .env file
+      DATABASE_URL: ${DATABASE_URL}
+
+  # Update aws-sync service to remove postgres dependency
+  aws-sync:
+    depends_on: []  # Remove postgres dependency
+    environment:
+      # DATABASE_URL should be set via environment variable or .env file
+      DATABASE_URL: ${DATABASE_URL}
