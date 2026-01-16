@@ -1,33 +1,102 @@
-# Docker Compose override for AWS RDS deployment
-# This file removes the postgres service and updates dependencies
-# Usage: docker compose -f docker-compose.yml -f docker-compose.rds.yml up -d
+# Standalone Docker Compose file for AWS RDS deployment
+# This file is independent and does not require docker-compose.yml
+# Usage: docker compose -f docker-compose.rds.yml up -d
 
 services:
-  # Disable postgres service - using AWS RDS instead
-  # Using deploy.replicas: 0 to prevent it from starting
-  postgres:
-    deploy:
-      replicas: 0
-    profiles:
-      - never
-
-  # Update app service to remove postgres dependency
   app:
-    depends_on: []  # Remove postgres dependency
+    image: python:3.11-slim
+    container_name: prefix_app
+    # No postgres dependency - using AWS RDS
     environment:
-      # DATABASE_URL should be set via environment variable or .env file
       DATABASE_URL: ${DATABASE_URL}
+    volumes:
+      - ./app:/app
+      - ../requirements.txt:/requirements.txt
+    working_dir: /app
+    command: sh -c "pip install -r /requirements.txt && python main.py"
+    restart: unless-stopped
 
-  # Update backend service to remove postgres dependency
   backend:
-    depends_on: []  # Remove postgres dependency
+    build: ./backend
+    container_name: prefix_backend
+    # No postgres dependency - using AWS RDS
     environment:
-      # DATABASE_URL should be set via environment variable or .env file
       DATABASE_URL: ${DATABASE_URL}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./app:/app
+      - ./backend:/backend
+      - ../exports:/app/exports  # Mount exports directory
+      - ${HOME}:${HOME}  # Mount user's home directory for PC export/import
+    working_dir: /backend
+    restart: unless-stopped
 
-  # Update aws-sync service to remove postgres dependency
-  aws-sync:
-    depends_on: []  # Remove postgres dependency
+  admin-frontend:
+    build: ./frontend
+    container_name: prefix_admin_frontend
+    depends_on:
+      - backend
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
     environment:
-      # DATABASE_URL should be set via environment variable or .env file
+      # Empty string means use dynamic detection (same host, port 8000)
+      # Or set to specific URL if needed: http://your-server-ip:8000
+      - VUE_APP_API_URL=
+    restart: unless-stopped
+
+  readonly-frontend:
+    build: ./frontend-readonly
+    container_name: prefix_readonly_frontend
+    depends_on:
+      - backend
+    ports:
+      - "8081:8081"
+    volumes:
+      - ./frontend-readonly:/app
+      - /app/node_modules
+    environment:
+      # Empty string means use dynamic detection (same host, port 8000)
+      # Or set to specific URL if needed: http://your-server-ip:8000
+      - VUE_APP_API_URL=
+    restart: unless-stopped
+
+  aws-sync:
+    image: python:3.11-slim
+    container_name: prefix_aws_sync
+    # No postgres dependency - using AWS RDS
+    environment:
       DATABASE_URL: ${DATABASE_URL}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-2}
+      AWS_ACCOUNT_ID: ${AWS_ACCOUNT_ID}
+      SYNC_MODE: ${SYNC_MODE:-continuous}
+      SYNC_INTERVAL: ${SYNC_INTERVAL:-300}
+      AWS_PAGE_SIZE: ${AWS_PAGE_SIZE:-100}
+      MAX_SUBNETS_PER_VPC: ${MAX_SUBNETS_PER_VPC:-1000}
+      DB_BATCH_SIZE: ${DB_BATCH_SIZE:-50}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_DIR: ${LOG_DIR:-logs}
+      DEFAULT_VRF_ID: ${DEFAULT_VRF_ID:-prod-vrf}
+      # AWS credentials will be read from mounted ~/.aws directory
+    volumes:
+      - ./app:/app
+      - ../requirements.txt:/requirements.txt
+      - ~/.aws:/root/.aws:ro  # Mount AWS credentials (read-only)
+      - ../exports:/app/exports  # Mount exports directory
+    working_dir: /app
+    command: sh -c "apt-get update && apt-get install -y gcc && pip install -r /requirements.txt && python aws_vpc_sync.py"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os; exit(0 if os.path.exists('logs/aws_sync.log') else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
