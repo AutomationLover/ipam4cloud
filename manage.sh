@@ -57,9 +57,32 @@ if ! docker compose version >/dev/null 2>&1; then
     exit 1
 fi
 
+# Detect deployment mode (RDS vs local database)
+detect_deployment_mode() {
+    USE_RDS=false
+    if [ -f .env ]; then
+        if grep -q "USE_RDS=true" .env 2>/dev/null; then
+            USE_RDS=true
+        elif grep -q "DATABASE_URL.*rds.amazonaws.com" .env 2>/dev/null; then
+            USE_RDS=true
+        fi
+    fi
+    
+    if [ "$USE_RDS" = true ]; then
+        DOCKER_COMPOSE_FILES="-f containers/docker-compose.yml -f containers/docker-compose.rds.yml"
+        print_status "Detected RDS deployment mode (using AWS RDS database)"
+    else
+        DOCKER_COMPOSE_FILES="-f containers/docker-compose.yml"
+        print_status "Detected local deployment mode (using containerized database)"
+    fi
+}
+
+# Detect deployment mode
+detect_deployment_mode
+
 # Docker Compose command with env file
 # Use --project-directory to set the build context correctly
-DOCKER_COMPOSE="docker compose --project-directory containers --file containers/docker-compose.yml --env-file .env"
+DOCKER_COMPOSE="docker compose --project-directory containers $DOCKER_COMPOSE_FILES --env-file .env"
 
 # Function to show help
 show_help() {
@@ -83,8 +106,13 @@ show_help() {
     echo "  🗄️  Database:       localhost:5432"
     echo ""
     echo "Options:"
-    echo "  --clean             Remove all database volumes (fresh start)"
+    echo "  --clean             Remove all database volumes (fresh start, local DB only)"
     echo "  -h, --help          Show this help message"
+    echo ""
+    echo "Deployment Modes:"
+    echo "  The script automatically detects deployment mode from .env file:"
+    echo "  - Local: Uses containerized PostgreSQL database"
+    echo "  - RDS: Uses AWS RDS (when USE_RDS=true or DATABASE_URL contains rds.amazonaws.com)"
     echo ""
     echo "Examples:"
     echo "  $0 start            # Start with existing data"
@@ -102,9 +130,15 @@ start_containers() {
     print_status "Starting Prefix Management System..."
     
     if [ "$clean_db" = true ]; then
-        print_warning "Cleaning database (removing all volumes and data)..."
-        $DOCKER_COMPOSE down -v --remove-orphans 2>/dev/null || true
-        print_success "Database cleaned"
+        if [ "$USE_RDS" = true ]; then
+            print_warning "RDS deployment detected - skipping database volume cleanup (using AWS RDS)"
+            print_warning "Stopping containers only..."
+            $DOCKER_COMPOSE down --remove-orphans 2>/dev/null || true
+        else
+            print_warning "Cleaning database (removing all volumes and data)..."
+            $DOCKER_COMPOSE down -v --remove-orphans 2>/dev/null || true
+            print_success "Database cleaned"
+        fi
     fi
     
     # Remove any existing containers with conflicting names
@@ -122,7 +156,11 @@ start_containers() {
     echo "  🔧 Admin Portal: http://localhost:8080"
     echo "  👀 Read-Only Portal: http://localhost:8081"
     echo "  🔧 Backend API: http://localhost:8000"
-    echo "  🗄️  Database: localhost:5432"
+    if [ "$USE_RDS" = true ]; then
+        echo "  🗄️  Database: AWS RDS (configured via DATABASE_URL)"
+    else
+        echo "  🗄️  Database: localhost:5432"
+    fi
 }
 
 # Function to stop containers
@@ -152,7 +190,9 @@ show_status() {
     print_status "Service health:"
     
     # Check if containers are running
-    if $DOCKER_COMPOSE ps --services --filter "status=running" | grep -q "postgres"; then
+    if [ "$USE_RDS" = true ]; then
+        echo "  🗄️  Database: AWS RDS (external)"
+    elif $DOCKER_COMPOSE ps --services --filter "status=running" | grep -q "postgres"; then
         echo "  🗄️  Database: Running"
     else
         echo "  🗄️  Database: Stopped"
@@ -185,20 +225,30 @@ show_status() {
 
 # Function to clean database
 clean_database() {
-    print_warning "Cleaning database (removing volumes)..."
-    $DOCKER_COMPOSE down -v --remove-orphans
+    if [ "$USE_RDS" = true ]; then
+        print_warning "RDS deployment detected - cannot clean AWS RDS database"
+        print_warning "Stopping containers only..."
+        $DOCKER_COMPOSE down --remove-orphans
+    else
+        print_warning "Cleaning database (removing volumes)..."
+        $DOCKER_COMPOSE down -v --remove-orphans
+    fi
     # Also remove any orphaned containers
     existing_containers=$(docker ps -a --filter "name=prefix_" --format "{{.Names}}" 2>/dev/null || true)
     if [ -n "$existing_containers" ]; then
         echo "$existing_containers" | xargs docker rm -f 2>/dev/null || true
     fi
-    print_success "Database cleaned"
+    print_success "Cleanup completed"
 }
 
 # Function to reset everything
 reset_system() {
     print_warning "Performing complete system reset..."
-    $DOCKER_COMPOSE down -v --remove-orphans
+    if [ "$USE_RDS" = true ]; then
+        $DOCKER_COMPOSE down --remove-orphans
+    else
+        $DOCKER_COMPOSE down -v --remove-orphans
+    fi
     # Remove any orphaned containers
     existing_containers=$(docker ps -a --filter "name=prefix_" --format "{{.Names}}" 2>/dev/null || true)
     if [ -n "$existing_containers" ]; then

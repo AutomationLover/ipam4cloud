@@ -84,3 +84,15 @@ export_manifest_*.json
 DOCUMENTATION_SECURITY_UPDATE.md
 ENVIRONMENT_VARIABLES.md
 
+# Deployment folder sensitive files
+# Note: terraform.tfvars and network.auto.tfvars are now allowed (not ignored)
+deploy/**/terraform.tfstate
+deploy/**/terraform.tfstate.backup
+deploy/**/.terraform.tfstate.lock.info
+deploy/**/network.auto.tfvars
+deploy/**/.terraform/
+deploy/**/.terraform.lock.hcl
+deploy/**/deployer-key.pem
+deploy/**/*-deployer-key
+deploy/**/*-deployer-key.pub
+deploy/**/*.pem

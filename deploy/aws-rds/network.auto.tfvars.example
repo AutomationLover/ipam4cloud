@@ -1,0 +1,30 @@
+# Copy this file to network.auto.tfvars and update with your actual values
+# network.auto.tfvars is gitignored and should contain your network/VPC configuration
+#
+# IMPORTANT: This file contains VPC and subnet IDs specific to your AWS environment.
+# DO NOT commit this file to version control.
+
+# ============================================================================
+# AWS Infrastructure Region
+# ============================================================================
+aws_region = "us-east-1"  # Infrastructure region (EC2 and RDS)
+
+# ============================================================================
+# VPC Configuration - REQUIRED
+# ============================================================================
+# Infrastructure VPC (where EC2 and RDS are deployed)
+# Find your VPC ID: aws ec2 describe-vpcs --query 'Vpcs[*].[VpcId,Tags[?Key==`Name`].Value|[0]]' --output table
+vpc_id = "vpc-XXXXXXXXXXXXX"
+
+# DB Subnet IDs - REQUIRED: AWS RDS requires at least 2 subnets in different AZs
+# This is mandatory even for single-AZ RDS instances (db_multi_az = false)
+# The RDS instance will run in a single AZ, but subnet group must span 2+ AZs
+# Find subnets: aws ec2 describe-subnets --filters "Name=vpc-id,Values=<vpc-id>" --query 'Subnets[*].[SubnetId,AvailabilityZone,CidrBlock]' --output table
+db_subnet_ids = [
+  "subnet-XXXXXXXXXXXXX",  # Primary subnet (same as EC2)
+  "subnet-YYYYYYYYYYYYY"   # Secondary subnet in different AZ
+]
+
+# EC2 Subnet ID - REQUIRED
+# Must be in the same VPC as db_subnet_ids
+ec2_subnet_id = "subnet-XXXXXXXXXXXXX"

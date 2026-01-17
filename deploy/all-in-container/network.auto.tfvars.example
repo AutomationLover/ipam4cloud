@@ -1,0 +1,12 @@
+# Network/VPC configuration file
+# This file is gitignored and contains your environment/region-specific network configuration
+#
+# IMPORTANT: This file contains VPC and subnet IDs specific to your AWS environment.
+# DO NOT commit this file to version control.
+
+# AWS Configuration
+aws_region = "ap-southeast-2"  # Replace with your AWS region (e.g., us-east-1, eu-west-1)
+
+# VPC Configuration - REQUIRED: Replace with your VPC and subnet IDs
+vpc_id = "vpc-id-where-you-want-to-deploy-this-instance"
+subnet_id = "subnet-id-where-you-want-to-deploy-this-instance"
