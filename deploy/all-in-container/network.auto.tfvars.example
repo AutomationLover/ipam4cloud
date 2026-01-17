@@ -4,8 +4,16 @@
 # IMPORTANT: This file contains VPC and subnet IDs specific to your AWS environment.
 # DO NOT commit this file to version control.
 
+# ============================================================================
+# AWS Infrastructure Region
+# ============================================================================
+aws_region = "ap-southeast-2"  # Infrastructure region (EC2 deployment)
+
+# ============================================================================
 # AWS Configuration
-aws_region = "ap-southeast-2"  # Replace with your AWS region (e.g., us-east-1, eu-west-1)
+# ============================================================================
+aws_sync_region = "us-east-2"  # AWS region for VPC sync operations (sync target VPCs)
+aws_account_id = "XXXXXXXXXXXXX"  # AWS Account ID for sync operations
 
 # VPC Configuration - REQUIRED: Replace with your VPC and subnet IDs
 vpc_id = "vpc-id-where-you-want-to-deploy-this-instance"

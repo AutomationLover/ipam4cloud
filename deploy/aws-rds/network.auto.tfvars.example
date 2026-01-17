@@ -7,7 +7,13 @@
 # ============================================================================
 # AWS Infrastructure Region
 # ============================================================================
-aws_region = "us-east-1"  # Infrastructure region (EC2 and RDS)
+aws_region = "ap-southeast-2"  # Infrastructure region (EC2 and RDS)
+
+# ============================================================================
+# AWS Configuration
+# ============================================================================
+aws_sync_region = "us-east-2"  # AWS region for VPC sync operations (sync target VPCs)
+aws_account_id = "XXXXXXXXXXXXX"  # AWS Account ID for sync operations
 
 # ============================================================================
 # VPC Configuration - REQUIRED

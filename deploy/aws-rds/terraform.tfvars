@@ -4,12 +4,6 @@
 # IMPORTANT: Also ensure network.auto.tfvars exists with your VPC and subnet IDs
 
 # ============================================================================
-# AWS Configuration
-# ============================================================================
-aws_sync_region = "us-east-2"  # AWS region for VPC sync operations (sync target VPCs)
-aws_account_id = "267406360448"
-
-# ============================================================================
 # Project Configuration
 # ============================================================================
 project_name = "ipam4cloud"

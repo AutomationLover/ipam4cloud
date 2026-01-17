@@ -1,7 +1,17 @@
 variable "aws_region" {
-  description = "AWS region for deployment"
+  description = "AWS region for infrastructure deployment"
   type        = string
   # No default - user must provide their region
+}
+
+variable "aws_sync_region" {
+  description = "AWS region for VPC sync operations (can be different from infrastructure region)"
+  type        = string
+}
+
+variable "aws_account_id" {
+  description = "AWS Account ID for sync operations"
+  type        = string
 }
 
 variable "project_name" {
