@@ -45,6 +45,11 @@ variable "vpc_id" {
 variable "db_subnet_ids" {
   description = "List of subnet IDs for DB subnet group. AWS RDS requires at least 2 subnets in different AZs (even for single-AZ instances)."
   type        = list(string)
+  
+  validation {
+    condition     = length(var.db_subnet_ids) >= 2
+    error_message = "AWS RDS requires at least 2 subnets in different AZs for DB subnet group."
+  }
 }
 
 variable "ec2_subnet_id" {

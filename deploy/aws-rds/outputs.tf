@@ -56,7 +56,7 @@ output "secrets_manager_secret_name" {
 
 output "rds_subnet_ids" {
   description = "Subnet IDs used for RDS subnet group"
-  value       = local.rds_subnet_ids
+  value       = var.db_subnet_ids
 }
 
 # ============================================================================

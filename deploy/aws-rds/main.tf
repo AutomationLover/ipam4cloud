@@ -99,19 +99,11 @@ locals {
 # RDS Resources
 # ============================================================================
 
-# AWS RDS requires DB subnet group to have at least 2 subnets in different AZs
-locals {
-  # Use provided subnet IDs directly - user must provide at least 2 subnets in different AZs
-  rds_subnet_ids = var.db_subnet_ids
-  
-  # Validation: Check if we have at least 2 subnets
-  subnet_count = length(var.db_subnet_ids)
-}
-
 # DB Subnet Group - RDS needs to be in at least 2 AZs
+# Validation is handled at the variable level (see variables.tf)
 resource "aws_db_subnet_group" "main" {
   name       = "${var.project_name}-${var.environment}-db-subnet-group"
-  subnet_ids = local.rds_subnet_ids
+  subnet_ids = var.db_subnet_ids
 
   tags = {
     Name        = "${var.project_name}-${var.environment}-db-subnet-group"
