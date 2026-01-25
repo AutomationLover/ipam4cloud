@@ -1,178 +1,204 @@
 <template>
-  <div class="prefixes-readonly">
-    <el-card>
-      <template #header>
-        <div class="card-header">
-          <span>Prefix Query (Read-Only)</span>
-          <el-tag type="info" size="large">
-            <el-icon><View /></el-icon>
-            View Only
-          </el-tag>
+  <div class="prefixes-container" :class="{ 'sidebar-hidden': !showSidebar }">
+    <!-- Sidebar Toggle Button -->
+    <div class="sidebar-toggle" :class="{ 'toggle-collapsed': !showSidebar }" @click="showSidebar = !showSidebar">
+      <el-icon>
+        <ArrowLeft v-if="showSidebar" />
+        <ArrowRight v-else />
+      </el-icon>
+    </div>
+    
+    <!-- Sidebar -->
+    <div class="sidebar" :class="{ 'sidebar-collapsed': !showSidebar }">
+      <div class="sidebar-content">
+        <div class="sidebar-header">
+          <h3>Filters</h3>
         </div>
-      </template>
-      
-      <!-- Filters -->
-      <el-row :gutter="20" class="filters">
-        <el-col :span="6">
-          <el-select 
-            v-model="filters.vrfIds" 
-            placeholder="Select VRFs" 
-            multiple
-            collapse-tags
-            collapse-tags-tooltip
-            clearable 
-            @change="loadData"
-            style="width: 100%"
-            :max-collapse-tags="2"
-          >
-            <el-option
-              v-for="vrf in vrfs"
-              :key="vrf.vrf_id"
-              :label="formatVRFDisplay(vrf.vrf_id)"
-              :value="vrf.vrf_id"
+        
+        <div class="sidebar-filters">
+          <!-- VRF Filter - Available in both views -->
+          <div class="filter-group">
+            <label class="filter-label">VRF</label>
+            <el-select 
+              v-model="filters.vrfIds" 
+              placeholder="Select VRFs" 
+              multiple
+              collapse-tags
+              collapse-tags-tooltip
+              clearable 
+              @change="loadData"
+              style="width: 100%"
+              :max-collapse-tags="2"
             >
-              <div class="vrf-option">
-                <div class="vrf-primary">{{ formatVRFDisplay(vrf.vrf_id) }}</div>
-                <div v-if="getVRFDetails(vrf.vrf_id)" class="vrf-details">
-                  {{ getVRFDetails(vrf.vrf_id) }}
+              <el-option
+                v-for="vrf in vrfs"
+                :key="vrf.vrf_id"
+                :label="formatVRFDisplay(vrf.vrf_id)"
+                :value="vrf.vrf_id"
+              >
+                <div class="vrf-option">
+                  <div class="vrf-primary">{{ formatVRFDisplay(vrf.vrf_id) }}</div>
+                  <div v-if="getVRFDetails(vrf.vrf_id)" class="vrf-details">
+                    {{ getVRFDetails(vrf.vrf_id) }}
+                  </div>
                 </div>
-              </div>
-            </el-option>
-          </el-select>
-        </el-col>
-        <el-col :span="6">
-          <el-select 
-            v-model="filters.source" 
-            placeholder="Source" 
-            clearable 
-            :disabled="viewMode === 'tree'"
-            @change="loadPrefixes"
-          >
-            <el-option label="All Sources" value="" />
-            <el-option label="Manual" value="manual" />
-            <el-option label="VPC" value="vpc" />
-          </el-select>
-          <div v-if="viewMode === 'tree'" class="filter-hint">List view only</div>
-        </el-col>
-        <el-col :span="6">
-          <el-select 
-            v-model="filters.routable" 
-            placeholder="Routable" 
-            clearable 
-            :disabled="viewMode === 'tree'"
-            @change="loadPrefixes"
-          >
-            <el-option label="All" value="" />
-            <el-option label="Routable" :value="true" />
-            <el-option label="Non-routable" :value="false" />
-          </el-select>
-          <div v-if="viewMode === 'tree'" class="filter-hint">List view only</div>
-        </el-col>
-      </el-row>
-      
-      <el-row :gutter="20" style="margin-top: 10px;">
-        <el-col :span="6">
-          <el-checkbox 
-            v-model="filters.includeDeleted" 
-            @change="loadData"
-            style="margin-top: 8px;"
-          >
-            <span style="color: #f56c6c;">Show VPC Subnets Deleted from AWS</span>
-          </el-checkbox>
-        </el-col>
-        <el-col :span="18">
-          <div class="search-container">
-          <el-input
-            v-model="filters.search"
-            :placeholder="viewMode === 'tree' ? 'Search available in list view only' : 'Search prefixes, tags...'"
-            :disabled="viewMode === 'tree'"
-            @input="debounceSearch"
-              @focus="showSearchHelp = true"
-              @blur="hideSearchHelp"
-              clearable
-          >
-            <template #prefix>
-              <el-icon><Search /></el-icon>
-            </template>
-              <template #suffix>
-                <el-tooltip content="Search Help" placement="top">
-                  <el-icon 
-                    class="search-help-icon" 
-                    @click="toggleSearchHelp"
-                  >
-                    <QuestionFilled />
-                  </el-icon>
-                </el-tooltip>
-              </template>
-          </el-input>
+              </el-option>
+            </el-select>
+          </div>
+          
+          <!-- Include Deleted Checkbox - Available in both views -->
+          <div class="filter-group">
+            <el-checkbox 
+              v-model="filters.includeDeleted" 
+              @change="loadData"
+            >
+              <span style="color: #f56c6c;">Show VPC Subnets Deleted from AWS</span>
+            </el-checkbox>
+          </div>
+          
+          <!-- List View Only Filters -->
+          <template v-if="viewMode === 'list'">
+            <!-- Source Filter -->
+            <div class="filter-group">
+              <label class="filter-label">Source</label>
+              <el-select 
+                v-model="filters.source" 
+                placeholder="Source" 
+                clearable 
+                @change="loadPrefixes"
+                style="width: 100%"
+              >
+                <el-option label="All Sources" value="" />
+                <el-option label="Manual" value="manual" />
+                <el-option label="VPC" value="vpc" />
+              </el-select>
+            </div>
             
-            <!-- Search Help Dropdown -->
-            <div 
-              v-show="showSearchHelp" 
-              class="search-help-dropdown"
-              @mousedown.prevent
-            >
-              <div class="search-help-title">Search Examples:</div>
-              <div class="search-examples">
-                <div 
-                  class="search-example" 
-                  @click="applySearchExample('AZ:us-east-1a')"
+            <!-- Routable Filter -->
+            <div class="filter-group">
+              <label class="filter-label">Routable</label>
+              <el-select 
+                v-model="filters.routable" 
+                placeholder="Routable" 
+                clearable 
+                @change="loadPrefixes"
+                style="width: 100%"
+              >
+                <el-option label="All" value="" />
+                <el-option label="Routable" :value="true" />
+                <el-option label="Non-routable" :value="false" />
+              </el-select>
+            </div>
+            
+            <!-- Search Filter -->
+            <div class="filter-group">
+              <label class="filter-label">Search</label>
+              <div class="search-container">
+                <el-input
+                  v-model="filters.search"
+                  placeholder="Search prefixes, tags..."
+                  @input="debounceSearch"
+                  @focus="showSearchHelp = true"
+                  @blur="hideSearchHelp"
+                  clearable
                 >
-                  <code>AZ:us-east-1a</code>
-                  <span>Find by tag</span>
-                </div>
+                  <template #prefix>
+                    <el-icon><Search /></el-icon>
+                  </template>
+                  <template #suffix>
+                    <el-tooltip content="Search Help" placement="top">
+                      <el-icon 
+                        class="search-help-icon" 
+                        @click="toggleSearchHelp"
+                      >
+                        <QuestionFilled />
+                      </el-icon>
+                    </el-tooltip>
+                  </template>
+                </el-input>
+                
+                <!-- Search Help Dropdown -->
                 <div 
-                  class="search-example" 
-                  @click="applySearchExample('10.0.1')"
+                  v-show="showSearchHelp" 
+                  class="search-help-dropdown"
+                  @mousedown.prevent
                 >
-                  <code>10.0.1</code>
-                  <span>CIDR contains</span>
+                  <div class="search-help-title">Search Examples:</div>
+                  <div class="search-examples">
+                    <div 
+                      class="search-example" 
+                      @click="applySearchExample('AZ:us-east-1a')"
+                    >
+                      <code>AZ:us-east-1a</code>
+                      <span>Find by tag</span>
+                    </div>
+                    <div 
+                      class="search-example" 
+                      @click="applySearchExample('10.0.1')"
+                    >
+                      <code>10.0.1</code>
+                      <span>CIDR contains</span>
+                    </div>
+                    <div 
+                      class="search-example" 
+                      @click="applySearchExample('10.0.1.0/24')"
+                    >
+                      <code>10.0.1.0/24</code>
+                      <span>Exact CIDR match</span>
+                    </div>
+                    <div 
+                      class="search-example" 
+                      @click="applySearchExample('Name:prod')"
+                    >
+                      <code>Name:prod</code>
+                      <span>Tag key:value</span>
+                    </div>
+                    <div 
+                      class="search-example" 
+                      @click="applySearchExample('AZ:us-east-1a 10.0.1')"
+                    >
+                      <code>AZ:us-east-1a 10.0.1</code>
+                      <span>Multiple terms (AND)</span>
+                    </div>
+                  </div>
+                  <div class="search-help-note">
+                    💡 Use <strong>tag:value</strong> format for specific tag searches
+                  </div>
                 </div>
-                <div 
-                  class="search-example" 
-                  @click="applySearchExample('10.0.1.0/24')"
-                >
-                  <code>10.0.1.0/24</code>
-                  <span>Exact CIDR match</span>
-                </div>
-                <div 
-                  class="search-example" 
-                  @click="applySearchExample('Name:prod')"
-                >
-                  <code>Name:prod</code>
-                  <span>Tag key:value</span>
-                </div>
-                <div 
-                  class="search-example" 
-                  @click="applySearchExample('AZ:us-east-1a 10.0.1')"
-                >
-                  <code>AZ:us-east-1a 10.0.1</code>
-                  <span>Multiple terms (AND)</span>
-                </div>
-              </div>
-              <div class="search-help-note">
-                💡 Use <strong>tag:value</strong> format for specific tag searches
               </div>
             </div>
+          </template>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Main Content -->
+    <div class="main-content">
+      <div class="prefixes-readonly">
+        <el-card>
+          <template #header>
+            <div class="card-header">
+              <span>Prefix Query (Read-Only)</span>
+              <el-tag type="info" size="large">
+                <el-icon><View /></el-icon>
+                View Only
+              </el-tag>
+            </div>
+          </template>
+          
+          <!-- View Toggle Subnav -->
+          <div class="view-subnav">
+            <el-radio-group v-model="viewMode" @change="loadData" size="default">
+              <el-radio-button label="list">
+                <el-icon><List /></el-icon>
+                List View
+              </el-radio-button>
+              <el-radio-button label="tree">
+                <el-icon><Share /></el-icon>
+                Tree View
+              </el-radio-button>
+            </el-radio-group>
           </div>
-        </el-col>
-      </el-row>
-      
-      <!-- View Toggle -->
-      <el-row class="view-toggle">
-        <el-col :span="24">
-          <el-radio-group v-model="viewMode" @change="loadData">
-            <el-radio-button label="list">
-              <el-icon><List /></el-icon>
-              List View
-            </el-radio-button>
-            <el-radio-button label="tree">
-              <el-icon><Share /></el-icon>
-              Tree View
-            </el-radio-button>
-          </el-radio-group>
-        </el-col>
-      </el-row>
       
       <!-- List View -->
       <div v-if="viewMode === 'list'">
@@ -295,19 +321,21 @@
           </template>
         </el-tree>
       </div>
-    </el-card>
+        </el-card>
+      </div>
+    </div>
   </div>
 </template>
 
 <script>
-import { Search, List, Share, Check, Close, QuestionFilled, View } from '@element-plus/icons-vue'
+import { Search, List, Share, Check, Close, QuestionFilled, View, ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
 import { prefixAPI, vrfAPI } from '../api'
 import { ElMessage } from 'element-plus'
 
 export default {
   name: 'PrefixesReadOnly',
   components: {
-    Search, List, Share, Check, Close, QuestionFilled, View
+    Search, List, Share, Check, Close, QuestionFilled, View, ArrowLeft, ArrowRight
   },
   data() {
     return {
@@ -336,7 +364,8 @@ export default {
       },
       searchTimeout: null,
       showSearchHelp: false,
-      searchHelpTimeout: null
+      searchHelpTimeout: null,
+      showSidebar: true // Sidebar visibility state
     }
   },
   async mounted() {
@@ -547,9 +576,105 @@ export default {
 </script>
 
 <style scoped>
+.prefixes-container {
+  display: flex;
+  position: relative;
+  width: 100%;
+  min-height: 100vh;
+}
+
+.sidebar-toggle {
+  position: absolute;
+  left: 300px;
+  top: 20px;
+  z-index: 1001;
+  background: #409eff;
+  color: white;
+  width: 24px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border-radius: 0 4px 4px 0;
+  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.15);
+  transition: left 0.3s ease;
+}
+
+.prefixes-container.sidebar-hidden .sidebar-toggle {
+  left: 0;
+}
+
+.sidebar-toggle:hover {
+  background: #66b1ff;
+}
+
+.sidebar {
+  width: 300px;
+  min-width: 300px;
+  background: #fff;
+  border-right: 1px solid #dcdfe6;
+  transition: transform 0.3s ease, min-width 0.3s ease, width 0.3s ease;
+  overflow-y: auto;
+  overflow-x: hidden;
+  position: relative;
+  z-index: 1000;
+  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.1);
+}
+
+.sidebar-collapsed {
+  width: 0 !important;
+  min-width: 0 !important;
+  overflow: hidden;
+  border-right: none;
+}
+
+.sidebar-content {
+  padding: 20px;
+}
+
+.sidebar-header {
+  margin-bottom: 20px;
+  padding-bottom: 15px;
+  border-bottom: 1px solid #ebeef5;
+}
+
+.sidebar-header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #303133;
+}
+
+.sidebar-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.filter-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: #606266;
+}
+
+.main-content {
+  flex: 1;
+  overflow-y: auto;
+  min-width: 0;
+  transition: flex 0.3s ease;
+}
+
 .prefixes-readonly {
   max-width: 1400px;
   margin: 0 auto;
+  padding: 20px;
 }
 
 .card-header {
@@ -644,6 +769,14 @@ export default {
   border-top: 1px solid #ebeef5;
   font-size: 12px;
   color: #606266;
+}
+
+.view-subnav {
+  background: #fff;
+  padding: 15px 20px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid #ebeef5;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
 }
 
 .view-toggle {
