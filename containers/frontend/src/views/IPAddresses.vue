@@ -313,7 +313,11 @@ export default {
         cb(suggestions)
       } catch (error) {
         console.error('Error fetching labels:', error)
-        ElMessage.error('Failed to fetch label suggestions')
+        // Only show error message if user has actually typed something
+        // Silent failure for empty queries (triggered by focus)
+        if (queryString && queryString.trim()) {
+          ElMessage.error('Failed to fetch label suggestions')
+        }
         cb([])
       }
     }
